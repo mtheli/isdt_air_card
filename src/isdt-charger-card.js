@@ -178,14 +178,17 @@ export class ISDTChargerCard extends HTMLElement {
     const device = this._hass.devices[this._config.device_id];
     const title = this._config.title || device?.name || "ISDT Charger";
 
-    const slots = Object.keys(this._entities.slots)
-      .map(Number)
-      .sort((a, b) => a - b);
+    // Determine mode: show slots 5+6 if any of them is non-empty, else slots 1–4
+    const use56 = [5, 6].some((n) => {
+      const s = this._entities.slots[n];
+      return s && this._st(s.status, "empty") !== "empty";
+    });
+    const visibleSlots = use56 ? [5, 6] : [1, 2, 3, 4];
 
     let h = '<div class="isdt-card">';
     if (show_header) h += this._headerHTML(title);
     h += '<div class="battery-grid">';
-    for (const slot of slots) h += this._slotHTML(slot);
+    for (const slot of visibleSlots) h += this._slotHTML(slot);
     h += "</div></div>";
     return h;
   }
@@ -447,10 +450,9 @@ export class ISDTChargerCard extends HTMLElement {
 
     /* ════════ Grid ════════ */
     .battery-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr);
+      display: grid; grid-template-columns: repeat(2, 1fr);
       gap: 10px; padding: 12px;
     }
-    @media (max-width: 400px) { .battery-grid { grid-template-columns: repeat(2, 1fr); } }
 
     /* ════════ Slot ════════ */
     .battery-slot {
