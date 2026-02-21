@@ -109,10 +109,10 @@ export class ISDTChargerCard extends HTMLElement {
           case "total_charging_current": main.total_charging_current = entityId; break;
           case "beep":                   main.beep = entityId; break;
           case "status": {
-            // One status sensor per slot — differentiate via unique_id (_ch0_, _ch1_, …)
-            const m = entity.unique_id?.match(/_ch(\d+)_/);
+            // One status sensor per slot — differentiate via entity_id (…_slot_N_status)
+            const m = entityId.match(/_slot_(\d+)_status/);
             if (m) {
-              const slotNum = parseInt(m[1]) + 1;
+              const slotNum = parseInt(m[1]);
               if (!slots[slotNum]) slots[slotNum] = {};
               slots[slotNum].status = entityId;
             }
