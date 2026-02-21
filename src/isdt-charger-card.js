@@ -222,10 +222,11 @@ export class ISDTChargerCard extends HTMLElement {
   }
 
   _chargeColor(pct) {
-    if (pct < 20) return { fill: "#ef5350", deep: "#c62828", glow: "rgba(239,83,80,0.45)", shadow: "rgba(239,83,80,0.12)" };
-    if (pct < 50) return { fill: "#ff9800", deep: "#e65100", glow: "rgba(255,152,0,0.45)",  shadow: "rgba(255,152,0,0.12)" };
-    if (pct < 80) return { fill: "#ffc107", deep: "#ff8f00", glow: "rgba(255,193,7,0.45)",  shadow: "rgba(255,193,7,0.12)" };
-    return               { fill: "#4caf50", deep: "#2e7d32", glow: "rgba(76,175,80,0.45)",  shadow: "rgba(76,175,80,0.12)" };
+    // Thresholds from ISDT Link app (PublicUIHandling.setProgress)
+    if (pct <= 20) return { fill: "#ff5555", deep: "#cc2222", glow: "rgba(255,85,85,0.45)",   shadow: "rgba(255,85,85,0.12)" };
+    if (pct <  75) return { fill: "#ff9955", deep: "#cc6622", glow: "rgba(255,153,85,0.45)",  shadow: "rgba(255,153,85,0.12)" };
+    if (pct <  90) return { fill: "#aad400", deep: "#779200", glow: "rgba(170,212,0,0.45)",   shadow: "rgba(170,212,0,0.12)" };
+    return               { fill: "#37c871", deep: "#1a8a4a", glow: "rgba(55,200,113,0.45)",  shadow: "rgba(55,200,113,0.12)" };
   }
 
   _slotHTML(slot) {
