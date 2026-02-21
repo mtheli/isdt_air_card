@@ -27,7 +27,7 @@ export class ISDTChargerCard extends HTMLElement {
   }
 
   static getStubConfig() {
-    return { entity_prefix: "sensor.isdt_c4_air", title: "ISDT C4 Air", slots: 4 };
+    return { entity_prefix: "sensor.isdt_c4_air", title: "ISDT C4 Air", slots: 6 };
   }
 
   setConfig(config) {
@@ -38,7 +38,7 @@ export class ISDTChargerCard extends HTMLElement {
       switch_prefix:
         config.switch_prefix ||
         config.entity_prefix.replace("sensor.", "switch."),
-      slots: config.slots || 4,
+      slots: config.slots || 6,
       show_header: config.show_header !== false,
       ...config,
     };

@@ -38,7 +38,7 @@ Custom Lovelace card for [ISDT Air BLE](https://github.com/mtheli/isdt_air_ble) 
 type: custom:isdt-charger-card
 title: ISDT C4 Air
 entity_prefix: sensor.isdt_c4_air
-slots: 4
+slots: 6
 show_header: true
 ```
 
@@ -49,7 +49,7 @@ show_header: true
 | `title` | `ISDT Charger` | Card title in the header |
 | `entity_prefix` | *(required)* | Prefix for sensor entities |
 | `switch_prefix` | auto | Prefix for switch entities |
-| `slots` | `4` | Number of slots (2, 4, 6, or 8) |
+| `slots` | `6` | Number of slots (2, 4, 6, or 8) |
 | `show_header` | `true` | Show header with input stats |
 
 ### Finding your entity prefix
