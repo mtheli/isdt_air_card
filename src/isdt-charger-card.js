@@ -260,17 +260,17 @@ export class ISDTChargerCard extends HTMLElement {
 
     // Hybrid color: when charging, fill color reflects charge level
     const color = isCharging ? this._chargeColor(pct) : null;
-    const fillStyle = `height:${fillH}%${color ? `;background:linear-gradient(0deg,${color.deep},${color.fill})` : ""}`;
+    const fillStyle = `width:${fillH}%${color ? `;background:linear-gradient(90deg,${color.deep},${color.fill})` : ""}`;
     const terminalStyle = color ? `background:${color.fill};box-shadow:0 0 8px ${color.glow}` : "";
     const bodyStyle = color ? `border-color:${color.glow};box-shadow:0 0 16px ${color.shadow}` : "";
 
     let bubbles = "";
     for (let i = 0; i < 6; i++) {
-      const l = 10 + Math.random() * 80;
+      const t = 10 + Math.random() * 80;
       const dur = 2.5 + Math.random() * 3;
       const del = Math.random() * 3;
       const sz = 2 + Math.random() * 2;
-      bubbles += `<div class="bubble" style="left:${l}%;bottom:5%;width:${sz}px;height:${sz}px;animation-duration:${dur}s;animation-delay:${del}s"></div>`;
+      bubbles += `<div class="bubble" style="left:3%;top:${t}%;width:${sz}px;height:${sz}px;animation-duration:${dur}s;animation-delay:${del}s"></div>`;
     }
 
     const accentColor = color?.fill ?? null;
@@ -283,29 +283,32 @@ export class ISDTChargerCard extends HTMLElement {
         <ha-icon icon="mdi:alert-circle" class="error-icon-lg"></ha-icon>
         <div class="battery-pct"><span class="pct-num sm">${Math.round(pct)}</span><span class="pct-sym">%</span></div>`;
     } else {
-      const pctStyle = accentColor ? `style="color:${accentColor}"` : "";
-      const symStyle = accentColor ? `style="color:${accentColor};opacity:0.75"` : "";
-      const boltStyle = accentColor ? `style="color:${accentColor}"` : "";
+      const pctStyle = accentColor ? `style="color:#fff;text-shadow:0 1px 6px rgba(0,0,0,0.35)"` : "";
+      const symStyle = accentColor ? `style="color:rgba(255,255,255,0.75)"` : "";
+      const boltStyle = accentColor ? `style="color:#fff"` : "";
       center = `
-        ${isCharging ? `<ha-icon icon="mdi:lightning-bolt" class="charging-bolt" ${boltStyle}></ha-icon>` : ""}
-        <div class="battery-pct"><span class="pct-num" ${pctStyle}>${Math.round(pct)}</span><span class="pct-sym" ${symStyle}>%</span></div>`;
+        <div class="battery-pct">
+          <span class="pct-num" ${pctStyle}>${Math.round(pct)}</span><span class="pct-sym" ${symStyle}>%</span>${isCharging ? `<ha-icon icon="mdi:lightning-bolt" class="charging-bolt" ${boltStyle}></ha-icon>` : ""}
+        </div>`;
     }
 
     const badgeStyle = accentColor ? `style="color:${accentColor}"` : "";
 
     return `
       <div class="battery-slot ${status}" data-slot="${slot}" data-status-entity="${e?.status || ""}">
-        <div class="battery-terminal" ${terminalStyle ? `style="${terminalStyle}"` : ""}></div>
-        <div class="battery-body" ${bodyStyle ? `style="${bodyStyle}"` : ""}>
-          <div class="battery-fill" style="${fillStyle}">
-            <div class="battery-fill-wave"></div>
-            <div class="battery-bubbles">${bubbles}</div>
+        <div class="battery-shell">
+          <div class="battery-body" ${bodyStyle ? `style="${bodyStyle}"` : ""}>
+            <div class="battery-fill" style="${fillStyle}">
+              <div class="battery-fill-wave"></div>
+              <div class="battery-bubbles">${bubbles}</div>
+            </div>
+            <div class="battery-content">
+              <span class="slot-badge">${slot}</span>
+              <span class="status-badge ${status}" ${badgeStyle}>${STATUS_LABELS[status] || status}</span>
+              ${center}
+            </div>
           </div>
-          <div class="battery-content">
-            <span class="slot-badge">${slot}</span>
-            <span class="status-badge ${status}" ${badgeStyle}>${STATUS_LABELS[status] || status}</span>
-            ${center}
-          </div>
+          <div class="battery-terminal" ${terminalStyle ? `style="${terminalStyle}"` : ""}></div>
         </div>
         <div class="battery-info ${isEmpty ? "hidden" : ""}">
           <div class="info-row">
@@ -463,40 +466,34 @@ export class ISDTChargerCard extends HTMLElement {
 
     /* ════════ Slot ════════ */
     .battery-slot {
-      display: flex; flex-direction: column; align-items: center;
-      cursor: pointer; transition: transform 0.2s;
+      display: flex; flex-direction: column; align-items: stretch;
+      cursor: pointer;
     }
-    .battery-slot:hover { transform: translateY(-2px); }
 
+    .battery-shell {
+      display: flex; flex-direction: row; align-items: center; width: 100%;
+      transition: transform 0.2s;
+    }
+    .battery-slot:hover .battery-shell { transform: translateX(2px); }
     .battery-terminal {
-      width: 36%; height: 7px;
+      width: 7px; height: 40%; min-height: 22px; flex-shrink: 0;
       background: var(--divider-color, #e0e0e0);
-      border-radius: 3px 3px 0 0; margin: 0 auto;
+      border-radius: 0 3px 3px 0;
       transition: background 0.4s, box-shadow 0.4s;
     }
     .battery-body {
-      position: relative; width: 100%; height: 175px;
+      position: relative; flex: 1; height: 95px;
       background: var(--secondary-background-color, rgba(0,0,0,0.04));
       border: 2px solid var(--divider-color, #e0e0e0);
-      border-radius: 4px 4px 10px 10px;
+      border-radius: 10px 4px 4px 10px;
       overflow: hidden; transition: border-color 0.4s, box-shadow 0.4s;
     }
     .battery-fill {
-      position: absolute; bottom: 0; left: 0; right: 0;
-      transition: height 1.2s cubic-bezier(0.22, 1, 0.36, 1);
-      border-radius: 0 0 8px 8px;
+      position: absolute; top: 0; left: 0; bottom: 0;
+      transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
     }
-    .battery-fill-wave {
-      position: absolute; top: -8px; left: -10%; width: 120%; height: 16px;
-      opacity: 0; pointer-events: none;
-    }
-    .charging .battery-fill-wave {
-      opacity: 1;
-      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 16'%3E%3Cpath d='M0,8 Q15,2 30,8 T60,8 T90,8 T120,8 V16 H0 Z' fill='rgba(255,255,255,0.12)'/%3E%3C/svg%3E") repeat-x;
-      background-size: 60px 16px;
-      animation: wave 2.5s linear infinite;
-    }
-    @keyframes wave { from { background-position-x: 0 } to { background-position-x: 60px } }
+    .battery-fill-wave { display: none; }
+    .charging .battery-fill-wave { display: none; }
 
     .battery-bubbles {
       position: absolute; inset: 0; overflow: hidden;
@@ -509,21 +506,21 @@ export class ISDTChargerCard extends HTMLElement {
       animation: rise linear infinite;
     }
     @keyframes rise {
-      from { transform: translateY(0) scale(1); opacity: 0.5; }
-      to   { transform: translateY(-180px) scale(0.3); opacity: 0; }
+      from { transform: translateX(0) scale(1); opacity: 0.5; }
+      to   { transform: translateX(90px) scale(0.3); opacity: 0; }
     }
 
     /* charging body/terminal/fill colors are set via inline style (hybrid level-based scheme) */
 
     .done .battery-body      { border-color: rgba(66,165,245,0.4); box-shadow: 0 0 16px rgba(66,165,245,0.1); }
     .done .battery-terminal  { background: var(--isdt-done); box-shadow: 0 0 8px rgba(66,165,245,0.4); }
-    .done .battery-fill      { background: linear-gradient(0deg, var(--isdt-done-deep), var(--isdt-done)); }
+    .done .battery-fill      { background: linear-gradient(90deg, var(--isdt-done-deep), var(--isdt-done)); }
 
     .idle .battery-fill      { background: var(--divider-color, #e0e0e0); opacity: 0.5; }
 
     .error .battery-body     { border-color: rgba(239,83,80,0.45); box-shadow: 0 0 16px rgba(239,83,80,0.1); animation: err-b 2s ease-in-out infinite; }
     .error .battery-terminal { background: var(--isdt-error); box-shadow: 0 0 8px rgba(239,83,80,0.45); }
-    .error .battery-fill     { background: linear-gradient(0deg, var(--isdt-error-deep), var(--isdt-error)); }
+    .error .battery-fill     { background: linear-gradient(90deg, var(--isdt-error-deep), var(--isdt-error)); }
     @keyframes err-b {
       0%,100% { border-color: rgba(239,83,80,0.3); }
       50%     { border-color: rgba(239,83,80,0.6); }
@@ -558,7 +555,7 @@ export class ISDTChargerCard extends HTMLElement {
     .status-badge.done     { color: var(--isdt-done); }
     .status-badge.error    { color: var(--isdt-error); }
 
-    .battery-pct { display: flex; align-items: baseline; }
+    .battery-pct { display: flex; align-items: center; }
     .pct-num { font-size: 32px; font-weight: 800; line-height: 1; color: var(--primary-text-color); }
     .pct-num.sm { font-size: 24px; }
     .pct-sym { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); margin-left: 1px; }
@@ -566,7 +563,7 @@ export class ISDTChargerCard extends HTMLElement {
     .done .pct-num { color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,0.3); }
     .done .pct-sym { color: rgba(255,255,255,0.7); }
 
-    .charging-bolt { --mdc-icon-size: 22px; margin-bottom: 2px; animation: bolt 1.5s ease-in-out infinite; }
+    .charging-bolt { --mdc-icon-size: 20px; margin-left: 3px; animation: bolt 1.5s ease-in-out infinite; }
     @keyframes bolt {
       0%,100% { opacity: 0.65; transform: scale(1); }
       50%     { opacity: 1; transform: scale(1.12); }
@@ -593,7 +590,7 @@ export class ISDTChargerCard extends HTMLElement {
       font-variant-numeric: tabular-nums; font-size: 10.5px; font-weight: 600;
       color: var(--primary-text-color);
     }
-    .info-sep { height: 1px; background: var(--divider-color, #e0e0e0); margin: 2px 0; }
+    .info-sep { height: 1px; background: var(--divider-color, #e0e0e0); margin: 3px 0 2px; opacity: 0.6; }
     .info-sub {
       display: flex; justify-content: space-between;
       font-variant-numeric: tabular-nums; font-size: 9.5px;
