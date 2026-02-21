@@ -221,11 +221,19 @@ export class ISDTChargerCard extends HTMLElement {
       </div>`;
   }
 
+  _chargeColor(pct) {
+    if (pct < 20) return { fill: "#ef5350", deep: "#c62828", glow: "rgba(239,83,80,0.45)", shadow: "rgba(239,83,80,0.12)" };
+    if (pct < 50) return { fill: "#ff9800", deep: "#e65100", glow: "rgba(255,152,0,0.45)",  shadow: "rgba(255,152,0,0.12)" };
+    if (pct < 80) return { fill: "#ffc107", deep: "#ff8f00", glow: "rgba(255,193,7,0.45)",  shadow: "rgba(255,193,7,0.12)" };
+    return               { fill: "#4caf50", deep: "#2e7d32", glow: "rgba(76,175,80,0.45)",  shadow: "rgba(76,175,80,0.12)" };
+  }
+
   _slotHTML(slot) {
     const e = this._entities.slots[slot];
     const status = this._st(e?.status, "empty");
     const isEmpty = status === "empty";
-    const isActive = status === "charging" || status === "done";
+    const isCharging = status === "charging";
+    const isActive = isCharging || status === "done";
 
     const pct = this._num(e?.capacity, 0);
     const cur = this._num(e?.charging_current, 0);
@@ -246,6 +254,12 @@ export class ISDTChargerCard extends HTMLElement {
 
     const fillH = isEmpty ? 0 : Math.max(4, pct);
 
+    // Hybrid color: when charging, fill color reflects charge level
+    const color = isCharging ? this._chargeColor(pct) : null;
+    const fillStyle = `height:${fillH}%${color ? `;background:linear-gradient(0deg,${color.deep},${color.fill})` : ""}`;
+    const terminalStyle = color ? `background:${color.fill};box-shadow:0 0 8px ${color.glow}` : "";
+    const bodyStyle = color ? `border-color:${color.glow};box-shadow:0 0 16px ${color.shadow}` : "";
+
     let bubbles = "";
     for (let i = 0; i < 6; i++) {
       const l = 10 + Math.random() * 80;
@@ -264,15 +278,15 @@ export class ISDTChargerCard extends HTMLElement {
         <div class="battery-pct"><span class="pct-num sm">${Math.round(pct)}</span><span class="pct-sym">%</span></div>`;
     } else {
       center = `
-        ${status === "charging" ? '<ha-icon icon="mdi:lightning-bolt" class="charging-bolt"></ha-icon>' : ""}
+        ${isCharging ? '<ha-icon icon="mdi:lightning-bolt" class="charging-bolt"></ha-icon>' : ""}
         <div class="battery-pct"><span class="pct-num">${Math.round(pct)}</span><span class="pct-sym">%</span></div>`;
     }
 
     return `
       <div class="battery-slot ${status}" data-slot="${slot}" data-status-entity="${e?.status || ""}">
-        <div class="battery-terminal"></div>
-        <div class="battery-body">
-          <div class="battery-fill" style="height:${fillH}%">
+        <div class="battery-terminal" ${terminalStyle ? `style="${terminalStyle}"` : ""}></div>
+        <div class="battery-body" ${bodyStyle ? `style="${bodyStyle}"` : ""}>
+          <div class="battery-fill" style="${fillStyle}">
             <div class="battery-fill-wave"></div>
             <div class="battery-bubbles">${bubbles}</div>
           </div>
@@ -489,9 +503,7 @@ export class ISDTChargerCard extends HTMLElement {
       to   { transform: translateY(-180px) scale(0.3); opacity: 0; }
     }
 
-    .charging .battery-body  { border-color: rgba(76,175,80,0.45); box-shadow: 0 0 16px rgba(76,175,80,0.12); }
-    .charging .battery-terminal { background: var(--isdt-charging); box-shadow: 0 0 8px rgba(76,175,80,0.45); }
-    .charging .battery-fill  { background: linear-gradient(0deg, var(--isdt-charging-deep), var(--isdt-charging)); }
+    /* charging body/terminal/fill colors are set via inline style (hybrid level-based scheme) */
 
     .done .battery-body      { border-color: rgba(66,165,245,0.4); box-shadow: 0 0 16px rgba(66,165,245,0.1); }
     .done .battery-terminal  { background: var(--isdt-done); box-shadow: 0 0 8px rgba(66,165,245,0.4); }
