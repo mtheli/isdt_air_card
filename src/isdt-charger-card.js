@@ -1,12 +1,12 @@
 /**
- * ISDT Charger Card v3.0 – Device-based, Battery Style, HA Theme-Aware
+ * ISDT Charger Card v0.2.0 – Device-based, Battery Style, HA Theme-Aware
  * Custom Lovelace Card for Home Assistant
  *
  * Selects a device from the isdt_air_ble integration and dynamically
  * discovers all entities via translation_key and sub-device mapping.
  */
 
-export const CARD_VERSION = "3.0.0";
+export const CARD_VERSION = "0.2.0";
 
 const STATUS_LABELS = {
   empty: "Empty", idle: "Idle", charging: "Charging", done: "Done", error: "Error",
