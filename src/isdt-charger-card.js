@@ -6,7 +6,7 @@
  * discovers all entities via translation_key and sub-device mapping.
  */
 
-export const CARD_VERSION = "0.2.0";
+export const CARD_VERSION = "0.3.0";
 
 const STATUS_LABELS = {
   empty: "Empty", idle: "Idle", charging: "Charging", done: "Done", error: "Error",
@@ -321,7 +321,7 @@ export class ISDTChargerCard extends HTMLElement {
           </div>
           <div class="info-row">
             <span class="lbl"><ha-icon icon="mdi:timer-outline"></ha-icon>Time</span>
-            <span class="val time-val" data-since="${since || ""}">${timeStr}</span>
+            <span class="val time-val" ${isCharging ? `data-since="${since || ""}"` : ""}>${timeStr}</span>
           </div>
           <div class="info-row">
             <span class="lbl"><ha-icon icon="mdi:atom"></ha-icon>Type</span>
@@ -492,6 +492,11 @@ export class ISDTChargerCard extends HTMLElement {
       position: absolute; top: 0; left: 0; bottom: 0;
       transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
     }
+    .battery-fill::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 55%);
+      pointer-events: none;
+    }
     .battery-fill-wave { display: none; }
     .charging .battery-fill-wave { display: none; }
 
@@ -526,8 +531,8 @@ export class ISDTChargerCard extends HTMLElement {
       50%     { border-color: rgba(239,83,80,0.6); }
     }
 
-    .empty .battery-body     { border-color: var(--divider-color, #e0e0e0); opacity: 0.6; }
-    .empty .battery-terminal { opacity: 0.5; }
+    .empty .battery-body     { border-color: var(--divider-color, #e0e0e0); opacity: 0.5; }
+    .empty .battery-terminal { opacity: 0.4; }
 
     .battery-content {
       position: absolute; inset: 0;
@@ -563,10 +568,10 @@ export class ISDTChargerCard extends HTMLElement {
     .done .pct-num { color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,0.3); }
     .done .pct-sym { color: rgba(255,255,255,0.7); }
 
-    .charging-bolt { --mdc-icon-size: 20px; margin-left: 3px; animation: bolt 1.5s ease-in-out infinite; }
+    .charging-bolt { --mdc-icon-size: 20px; margin-left: 3px; animation: bolt 1.2s ease-in-out infinite; }
     @keyframes bolt {
-      0%,100% { opacity: 0.65; transform: scale(1); }
-      50%     { opacity: 1; transform: scale(1.12); }
+      0%,100% { opacity: 0.6; transform: scale(1);    filter: drop-shadow(0 0 0px currentColor); }
+      50%     { opacity: 1;   transform: scale(1.3);  filter: drop-shadow(0 0 5px currentColor); }
     }
 
     .empty-icon-lg { --mdc-icon-size: 34px; color: var(--disabled-text-color, #bdbdbd); }
@@ -584,10 +589,11 @@ export class ISDTChargerCard extends HTMLElement {
       display: flex; align-items: center; justify-content: space-between;
       font-size: 10.5px; color: var(--secondary-text-color); line-height: 1.7;
     }
-    .info-row .lbl { display: flex; align-items: center; gap: 3px; }
-    .info-row .lbl ha-icon { --mdc-icon-size: 12px; opacity: 0.5; }
+    .info-row .lbl { display: flex; align-items: center; gap: 5px; }
+    .info-row .lbl ha-icon { --mdc-icon-size: 13px; opacity: 0.55; }
     .info-row .val {
-      font-variant-numeric: tabular-nums; font-size: 10.5px; font-weight: 600;
+      font-family: ui-monospace, 'Roboto Mono', monospace;
+      font-variant-numeric: tabular-nums; font-size: 10.5px; font-weight: 500;
       color: var(--primary-text-color);
     }
     .info-sep { height: 1px; background: var(--divider-color, #e0e0e0); margin: 3px 0 2px; opacity: 0.6; }
