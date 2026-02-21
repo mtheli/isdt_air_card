@@ -30,7 +30,10 @@ export class ISDTChargerCard extends HTMLElement {
           required: true,
           selector: {
             device: {
-              filter: { integration: "isdt_air_ble" },
+              filter: {
+                integration: "isdt_air_ble",
+                entity: [{ domain: "switch" }],
+              },
               multiple: false,
             },
           },
