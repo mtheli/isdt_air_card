@@ -1,7 +1,6 @@
-import { ISDTChargerCard, ISDTChargerCardEditor, CARD_VERSION } from "./isdt-charger-card.js";
+import { ISDTChargerCard, CARD_VERSION } from "./isdt-charger-card.js";
 
 customElements.define("isdt-charger-card", ISDTChargerCard);
-customElements.define("isdt-charger-card-editor", ISDTChargerCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({

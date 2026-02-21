@@ -2,17 +2,18 @@
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 
-Custom Lovelace card for [ISDT Air BLE](https://github.com/mtheli/isdt_air_ble) chargers in Home Assistant. Battery-style design that adapts to your HA theme (light & dark).
+Custom Lovelace card for [ISDT Air BLE](https://github.com/mtheli/isdt_air_ble) chargers in Home Assistant. Select your charger device and all entities are discovered automatically. Battery-style design that adapts to your HA theme (light & dark).
 
 ## Features
 
+- **Device-based setup** — select your ISDT Air BLE device, no entity prefix needed
+- **Auto-discovery** of all entities via translation key and sub-device mapping
 - **Battery-shaped slots** with liquid fill level, wave animation & bubbles
 - **HA theme-aware** — automatically adapts to any light or dark theme
 - **Header** with input voltage, current, power, total charging current, beep toggle
 - **Per-slot details**: voltage, current, live charge timer, battery type, mAh/Wh
 - **Status animations**: green glow (charging), blue (done), red pulse (error)
 - **Click any slot** to open the HA more-info dialog
-- **Visual config editor** in the Lovelace UI
 
 ## Installation
 
@@ -36,52 +37,18 @@ Custom Lovelace card for [ISDT Air BLE](https://github.com/mtheli/isdt_air_ble) 
 
 ```yaml
 type: custom:isdt-charger-card
-title: ISDT C4 Air
-entity_prefix: sensor.isdt_c4_air
-slots: 6
-show_header: true
+device_id: <your-device-id>
 ```
+
+The card uses HA's native device picker — just select your ISDT charger from the dropdown. All entities are discovered automatically.
 
 ### Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `title` | `ISDT Charger` | Card title in the header |
-| `entity_prefix` | *(required)* | Prefix for sensor entities |
-| `switch_prefix` | auto | Prefix for switch entities |
-| `slots` | `6` | Number of slots (2, 4, 6, or 8) |
+| `device_id` | *(required)* | ISDT Air BLE device ID |
+| `title` | device name | Override the card title |
 | `show_header` | `true` | Show header with input stats |
-
-### Finding your entity prefix
-
-Go to **Developer Tools → States** and search for `isdt`. Your entities will look like:
-
-```
-sensor.isdt_c4_air_input_voltage
-sensor.isdt_c4_air_slot_1_status
-sensor.isdt_c4_air_slot_1_capacity
-```
-
-The prefix is typically `sensor.isdt_c4_air`.
-
-## Entity Mapping
-
-**Header:**
-- `{prefix}_input_voltage`
-- `{prefix}_input_current`
-- `{prefix}_total_charging_current`
-
-**Per slot:**
-- `{prefix}_slot_{n}_status` — empty, idle, charging, done, error
-- `{prefix}_slot_{n}_capacity` — Battery %
-- `{prefix}_slot_{n}_charging_current` — Amps
-- `{prefix}_slot_{n}_output_voltage` — Volts
-- `{prefix}_slot_{n}_charging_since` — Timestamp
-- `{prefix}_slot_{n}_battery_type` — Chemistry
-- `{prefix}_slot_{n}_capacity_charged` — mAh
-- `{prefix}_slot_{n}_energy_charged` — Wh
-
-**Switch:** `{switch_prefix}_beep`
 
 ## Status Colors
 
