@@ -300,14 +300,21 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
             const sz = 2 + Math.random() * 2;
             bubbles += `<div class="bubble" style="left:${l}%;bottom:5%;width:${sz}px;height:${sz}px;animation-duration:${dur}s;animation-delay:${del}s"></div>`;
         }
+        const accentColor = color?.fill ?? null;
         let center = "";
         if (isEmpty) center = '<ha-icon icon="mdi:battery-off-outline" class="empty-icon-lg"></ha-icon>';
         else if (status === "error") center = `
         <ha-icon icon="mdi:alert-circle" class="error-icon-lg"></ha-icon>
         <div class="battery-pct"><span class="pct-num sm">${Math.round(pct)}</span><span class="pct-sym">%</span></div>`;
-        else center = `
-        ${isCharging ? '<ha-icon icon="mdi:lightning-bolt" class="charging-bolt"></ha-icon>' : ""}
-        <div class="battery-pct"><span class="pct-num">${Math.round(pct)}</span><span class="pct-sym">%</span></div>`;
+        else {
+            const pctStyle = accentColor ? `style="color:${accentColor}"` : "";
+            const symStyle = accentColor ? `style="color:${accentColor};opacity:0.75"` : "";
+            const boltStyle = accentColor ? `style="color:${accentColor}"` : "";
+            center = `
+        ${isCharging ? `<ha-icon icon="mdi:lightning-bolt" class="charging-bolt" ${boltStyle}></ha-icon>` : ""}
+        <div class="battery-pct"><span class="pct-num" ${pctStyle}>${Math.round(pct)}</span><span class="pct-sym" ${symStyle}>%</span></div>`;
+        }
+        const badgeStyle = accentColor ? `style="color:${accentColor}"` : "";
         return `
       <div class="battery-slot ${status}" data-slot="${slot}" data-status-entity="${e?.status || ""}">
         <div class="battery-terminal" ${terminalStyle ? `style="${terminalStyle}"` : ""}></div>
@@ -318,7 +325,7 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
           </div>
           <div class="battery-content">
             <span class="slot-badge">${slot}</span>
-            <span class="status-badge ${status}">${$9a3262f48b2f355e$var$STATUS_LABELS[status] || status}</span>
+            <span class="status-badge ${status}" ${badgeStyle}>${$9a3262f48b2f355e$var$STATUS_LABELS[status] || status}</span>
             ${center}
           </div>
         </div>
@@ -562,7 +569,6 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       color: var(--secondary-text-color);
     }
-    .status-badge.charging { color: var(--isdt-charging); }
     .status-badge.done     { color: var(--isdt-done); }
     .status-badge.error    { color: var(--isdt-error); }
 
@@ -571,10 +577,10 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
     .pct-num.sm { font-size: 24px; }
     .pct-sym { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); margin-left: 1px; }
 
-    .charging .pct-num, .done .pct-num { color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,0.3); }
-    .charging .pct-sym, .done .pct-sym { color: rgba(255,255,255,0.7); }
+    .done .pct-num { color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,0.3); }
+    .done .pct-sym { color: rgba(255,255,255,0.7); }
 
-    .charging-bolt { --mdc-icon-size: 22px; color: #fff; margin-bottom: 2px; animation: bolt 1.5s ease-in-out infinite; }
+    .charging-bolt { --mdc-icon-size: 22px; margin-bottom: 2px; animation: bolt 1.5s ease-in-out infinite; }
     @keyframes bolt {
       0%,100% { opacity: 0.65; transform: scale(1); }
       50%     { opacity: 1; transform: scale(1.12); }
