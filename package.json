@@ -1,7 +1,7 @@
 {
   "source": "src/index.js",
   "module": "dist/isdt-charger-card.js",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "targets": {
     "module": {
       "includeNodeModules": true
