@@ -4,7 +4,7 @@
  *
  * Selects a device from the isdt_air_ble integration and dynamically
  * discovers all entities via translation_key and sub-device mapping.
- */ const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.3.0";
+ */ const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.3.1";
 const $9a3262f48b2f355e$var$STATUS_LABELS = {
     empty: "Empty",
     idle: "Idle",
