@@ -4,7 +4,7 @@
  *
  * Selects a device from the isdt_air_ble integration and dynamically
  * discovers all entities via translation_key and sub-device mapping.
- */ const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.2.0";
+ */ const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.3.0";
 const $9a3262f48b2f355e$var$STATUS_LABELS = {
     empty: "Empty",
     idle: "Idle",
@@ -83,6 +83,7 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
             input_voltage: null,
             input_current: null,
             total_charging_current: null,
+            connected: null,
             beep: null
         };
         const slots = {};
@@ -105,6 +106,9 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
                     break;
                 case "total_charging_current":
                     main.total_charging_current = entityId;
+                    break;
+                case "connected":
+                    main.connected = entityId;
                     break;
                 case "beep":
                     main.beep = entityId;
@@ -180,7 +184,7 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
     _html() {
         const { show_header: show_header } = this._config;
         const device = this._hass.devices[this._config.device_id];
-        const title = this._config.title || device?.name || "ISDT Charger";
+        const title = (this._config.title || device?.name || "ISDT Charger").replace(/^ISDT\s+/i, "");
         // Determine mode: show slots 5+6 if any of them is non-empty, else slots 1–4
         const use56 = [
             5,
@@ -212,12 +216,14 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
         const tA = this._num(main.total_charging_current);
         const iW = (iV * iA).toFixed(1);
         const beep = this._st(main.beep, "off") === "on";
+        const connected = this._st(main.connected, "off") === "on";
         return `
       <div class="header">
         <div class="header-top">
           <div class="header-title">
             <span class="isdt-logo">ISDT</span>
             <span class="model-name">${title}</span>
+            <span class="conn-dot ${connected ? "on" : ""}" title="${connected ? "Connected" : "Disconnected"}"></span>
           </div>
           <button class="beep-btn ${beep ? "on" : ""}" data-entity="${main.beep || ""}">
             <ha-icon icon="mdi:${beep ? "volume-high" : "volume-off"}"></ha-icon>
@@ -343,7 +349,7 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
           </div>
           <div class="info-row">
             <span class="lbl"><ha-icon icon="mdi:timer-outline"></ha-icon>Time</span>
-            <span class="val time-val" data-since="${since || ""}">${timeStr}</span>
+            <span class="val time-val" ${isCharging ? `data-since="${since || ""}"` : ""}>${timeStr}</span>
           </div>
           <div class="info-row">
             <span class="lbl"><ha-icon icon="mdi:atom"></ha-icon>Type</span>
@@ -439,6 +445,15 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
       font-size: 13px; font-weight: 500;
       color: var(--secondary-text-color, #727272);
     }
+    .conn-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: var(--disabled-text-color, #bdbdbd);
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .conn-dot.on {
+      background: #4caf50;
+      box-shadow: 0 0 6px rgba(76,175,80,0.5);
+    }
     .beep-btn {
       background: var(--card-background-color, #fff);
       border: 1px solid var(--divider-color, #e0e0e0);
@@ -506,6 +521,11 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
       position: absolute; top: 0; left: 0; bottom: 0;
       transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
     }
+    .battery-fill::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 55%);
+      pointer-events: none;
+    }
     .battery-fill-wave { display: none; }
     .charging .battery-fill-wave { display: none; }
 
@@ -540,8 +560,8 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
       50%     { border-color: rgba(239,83,80,0.6); }
     }
 
-    .empty .battery-body     { border-color: var(--divider-color, #e0e0e0); opacity: 0.6; }
-    .empty .battery-terminal { opacity: 0.5; }
+    .empty .battery-body     { border-color: var(--divider-color, #e0e0e0); opacity: 0.5; }
+    .empty .battery-terminal { opacity: 0.4; }
 
     .battery-content {
       position: absolute; inset: 0;
@@ -577,10 +597,10 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
     .done .pct-num { color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,0.3); }
     .done .pct-sym { color: rgba(255,255,255,0.7); }
 
-    .charging-bolt { --mdc-icon-size: 20px; margin-left: 3px; animation: bolt 1.5s ease-in-out infinite; }
+    .charging-bolt { --mdc-icon-size: 20px; margin-left: 3px; animation: bolt 1.2s ease-in-out infinite; }
     @keyframes bolt {
-      0%,100% { opacity: 0.65; transform: scale(1); }
-      50%     { opacity: 1; transform: scale(1.12); }
+      0%,100% { opacity: 0.6; transform: scale(1);    filter: drop-shadow(0 0 0px currentColor); }
+      50%     { opacity: 1;   transform: scale(1.3);  filter: drop-shadow(0 0 5px currentColor); }
     }
 
     .empty-icon-lg { --mdc-icon-size: 34px; color: var(--disabled-text-color, #bdbdbd); }
@@ -598,10 +618,11 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
       display: flex; align-items: center; justify-content: space-between;
       font-size: 10.5px; color: var(--secondary-text-color); line-height: 1.7;
     }
-    .info-row .lbl { display: flex; align-items: center; gap: 3px; }
-    .info-row .lbl ha-icon { --mdc-icon-size: 12px; opacity: 0.5; }
+    .info-row .lbl { display: flex; align-items: center; gap: 5px; }
+    .info-row .lbl ha-icon { --mdc-icon-size: 13px; opacity: 0.55; }
     .info-row .val {
-      font-variant-numeric: tabular-nums; font-size: 10.5px; font-weight: 600;
+      font-family: ui-monospace, 'Roboto Mono', monospace;
+      font-variant-numeric: tabular-nums; font-size: 10.5px; font-weight: 500;
       color: var(--primary-text-color);
     }
     .info-sep { height: 1px; background: var(--divider-color, #e0e0e0); margin: 3px 0 2px; opacity: 0.6; }

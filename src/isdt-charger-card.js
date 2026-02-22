@@ -82,6 +82,7 @@ export class ISDTChargerCard extends HTMLElement {
       input_voltage: null,
       input_current: null,
       total_charging_current: null,
+      connected: null,
       beep: null,
     };
     const slots = {};
@@ -107,6 +108,7 @@ export class ISDTChargerCard extends HTMLElement {
           case "input_voltage":          main.input_voltage = entityId; break;
           case "input_current":          main.input_current = entityId; break;
           case "total_charging_current": main.total_charging_current = entityId; break;
+          case "connected":              main.connected = entityId; break;
           case "beep":                   main.beep = entityId; break;
           case "status": {
             // One status sensor per slot — differentiate via entity_id (…_slot_N_status)
@@ -176,7 +178,7 @@ export class ISDTChargerCard extends HTMLElement {
   _html() {
     const { show_header } = this._config;
     const device = this._hass.devices[this._config.device_id];
-    const title = this._config.title || device?.name || "ISDT Charger";
+    const title = (this._config.title || device?.name || "ISDT Charger").replace(/^ISDT\s+/i, "");
 
     // Determine mode: show slots 5+6 if any of them is non-empty, else slots 1–4
     const use56 = [5, 6].some((n) => {
@@ -200,6 +202,7 @@ export class ISDTChargerCard extends HTMLElement {
     const tA = this._num(main.total_charging_current);
     const iW = (iV * iA).toFixed(1);
     const beep = this._st(main.beep, "off") === "on";
+    const connected = this._st(main.connected, "off") === "on";
 
     return `
       <div class="header">
@@ -207,6 +210,7 @@ export class ISDTChargerCard extends HTMLElement {
           <div class="header-title">
             <span class="isdt-logo">ISDT</span>
             <span class="model-name">${title}</span>
+            <span class="conn-dot ${connected ? "on" : ""}" title="${connected ? "Connected" : "Disconnected"}"></span>
           </div>
           <button class="beep-btn ${beep ? "on" : ""}" data-entity="${main.beep || ""}">
             <ha-icon icon="mdi:${beep ? "volume-high" : "volume-off"}"></ha-icon>
@@ -424,6 +428,15 @@ export class ISDTChargerCard extends HTMLElement {
     .model-name {
       font-size: 13px; font-weight: 500;
       color: var(--secondary-text-color, #727272);
+    }
+    .conn-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: var(--disabled-text-color, #bdbdbd);
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .conn-dot.on {
+      background: #4caf50;
+      box-shadow: 0 0 6px rgba(76,175,80,0.5);
     }
     .beep-btn {
       background: var(--card-background-color, #fff);
