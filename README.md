@@ -1,6 +1,8 @@
 # ISDT Charger Card
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![GitHub Release](https://img.shields.io/github/v/release/mtheli/isdt_air_card)](https://github.com/mtheli/isdt_air_card/releases)
+[![License: MIT](https://img.shields.io/github/license/mtheli/isdt_air_card)](LICENSE)
 
 Custom Lovelace card for [ISDT Air BLE](https://github.com/mtheli/isdt_air_ble) chargers in Home Assistant. Select your charger device and all entities are discovered automatically. Battery-style design that adapts to your HA theme (light & dark).
 
