@@ -4,7 +4,7 @@
  *
  * Selects a device from the isdt_air_ble integration and dynamically
  * discovers all entities via translation_key and sub-device mapping.
- */ const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.3.1";
+ */ const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.3.2";
 const $9a3262f48b2f355e$var$STATUS_LABELS = {
     empty: "Empty",
     idle: "Idle",
@@ -323,43 +323,43 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
         }
         const badgeStyle = accentColor ? `style="color:${accentColor}"` : "";
         return `
-      <div class="battery-slot ${status}" data-slot="${slot}" data-status-entity="${e?.status || ""}">
+      <div class="battery-slot ${status}" data-slot="${slot}">
         <div class="battery-shell">
-          <div class="battery-body" ${bodyStyle ? `style="${bodyStyle}"` : ""}>
+          <div class="battery-body" data-entity="${e?.capacity || ""}" ${bodyStyle ? `style="${bodyStyle}"` : ""}>
             <div class="battery-fill" style="${fillStyle}">
               <div class="battery-fill-wave"></div>
               <div class="battery-bubbles">${bubbles}</div>
             </div>
             <div class="battery-content">
               <span class="slot-badge">${slot}</span>
-              <span class="status-badge ${status}" ${badgeStyle}>${$9a3262f48b2f355e$var$STATUS_LABELS[status] || status}</span>
+              <span class="status-badge ${status}" data-entity="${e?.status || ""}" ${badgeStyle}>${$9a3262f48b2f355e$var$STATUS_LABELS[status] || status}</span>
               ${center}
             </div>
           </div>
           <div class="battery-terminal" ${terminalStyle ? `style="${terminalStyle}"` : ""}></div>
         </div>
         <div class="battery-info ${isEmpty ? "hidden" : ""}">
-          <div class="info-row">
+          <div class="info-row" data-entity="${e?.output_voltage || ""}">
             <span class="lbl"><ha-icon icon="mdi:flash"></ha-icon>Volt</span>
             <span class="val">${vol.toFixed(2)} V</span>
           </div>
-          <div class="info-row">
+          <div class="info-row" data-entity="${e?.charging_current || ""}">
             <span class="lbl"><ha-icon icon="mdi:current-dc"></ha-icon>Amp</span>
             <span class="val">${cur.toFixed(3)} A</span>
           </div>
-          <div class="info-row">
+          <div class="info-row" data-entity="${e?.charge_time || ""}">
             <span class="lbl"><ha-icon icon="mdi:timer-outline"></ha-icon>Time</span>
             <span class="val time-val" ${isCharging ? `data-since="${since || ""}"` : ""}>${timeStr}</span>
           </div>
-          <div class="info-row">
+          <div class="info-row" data-entity="${e?.battery_type || ""}">
             <span class="lbl"><ha-icon icon="mdi:atom"></ha-icon>Type</span>
             <span class="val">${btype !== "unavailable" ? btype : "\u2013"}</span>
           </div>
           ${isActive ? `
             <div class="info-sep"></div>
             <div class="info-sub">
-              <span>${mah.toFixed(0)} mAh</span>
-              <span>${wh.toFixed(2)} Wh</span>
+              <span data-entity="${e?.capacity_done || ""}">${mah.toFixed(0)} mAh</span>
+              <span data-entity="${e?.energy_done || ""}">${wh.toFixed(2)} Wh</span>
             </div>` : ""}
         </div>
       </div>`;
@@ -372,16 +372,16 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
                 entity_id: beepBtn.dataset.entity
             });
         });
-        card.querySelectorAll(".battery-slot").forEach((el)=>{
-            el.addEventListener("click", ()=>{
-                const entityId = el.dataset.statusEntity;
-                if (!entityId) return;
+        card.querySelectorAll("[data-entity]").forEach((el)=>{
+            if (!el.dataset.entity) return;
+            el.addEventListener("click", (e)=>{
+                e.stopPropagation();
                 const ev = new Event("hass-more-info", {
                     bubbles: true,
                     composed: true
                 });
                 ev.detail = {
-                    entityId: entityId
+                    entityId: el.dataset.entity
                 };
                 this.dispatchEvent(ev);
             });
@@ -496,8 +496,8 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
     /* \u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550} Slot \u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550} */
     .battery-slot {
       display: flex; flex-direction: column; align-items: stretch;
-      cursor: pointer;
     }
+    .battery-body { cursor: pointer; }
 
     .battery-shell {
       display: flex; flex-direction: row; align-items: center; width: 100%;
@@ -617,7 +617,9 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
     .info-row {
       display: flex; align-items: center; justify-content: space-between;
       font-size: 10.5px; color: var(--secondary-text-color); line-height: 1.7;
+      cursor: pointer;
     }
+    .info-row:hover { color: var(--primary-text-color); }
     .info-row .lbl { display: flex; align-items: center; gap: 5px; }
     .info-row .lbl ha-icon { --mdc-icon-size: 13px; opacity: 0.55; }
     .info-row .val {
@@ -631,6 +633,10 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
       font-variant-numeric: tabular-nums; font-size: 9.5px;
       color: var(--secondary-text-color);
     }
+    .info-sub span { cursor: pointer; }
+    .info-sub span:hover { color: var(--primary-text-color); }
+    .status-badge { cursor: pointer; }
+    .status-badge:hover { filter: brightness(0.85); }
     `;
     }
 }
