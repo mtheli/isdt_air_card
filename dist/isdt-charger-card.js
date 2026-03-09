@@ -60,9 +60,10 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
             ]
         };
     }
-    static getStubConfig() {
+    static getStubConfig(hass) {
+        const entry = Object.values(hass.entities).find((e)=>e.platform === "isdt_air_ble" && e.translation_key === "connected");
         return {
-            device_id: ""
+            device_id: entry ? entry.device_id : ""
         };
     }
     setConfig(config) {

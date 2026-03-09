@@ -52,8 +52,11 @@ export class ISDTChargerCard extends HTMLElement {
     };
   }
 
-  static getStubConfig() {
-    return { device_id: "" };
+  static getStubConfig(hass) {
+    const entry = Object.values(hass.entities).find(
+      (e) => e.platform === "isdt_air_ble" && e.translation_key === "connected"
+    );
+    return { device_id: entry ? entry.device_id : "" };
   }
 
   setConfig(config) {
