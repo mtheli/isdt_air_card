@@ -1,0 +1,21 @@
+{
+  "status_empty": "Empty",
+  "status_idle": "Idle",
+  "status_charging": "Charging",
+  "status_done": "Done",
+  "status_error": "Error",
+  "header_input": "Input",
+  "header_current": "Current",
+  "header_power": "Power",
+  "header_total_charge": "Σ Charge",
+  "info_volt": "Volt",
+  "info_amp": "Amp",
+  "info_time": "Time",
+  "info_type": "Type",
+  "tooltip_connected": "Connected",
+  "tooltip_disconnected": "Disconnected",
+  "config_title": "Title (optional – defaults to device name)",
+  "config_show_model": "Show model as subtitle",
+  "config_show_header": "Show header with input stats",
+  "error_no_device": "Please select a device"
+}

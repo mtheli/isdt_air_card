@@ -1,0 +1,21 @@
+{
+  "status_empty": "Leer",
+  "status_idle": "Bereit",
+  "status_charging": "Lädt",
+  "status_done": "Fertig",
+  "status_error": "Fehler",
+  "header_input": "Input",
+  "header_current": "Strom",
+  "header_power": "Leistung",
+  "header_total_charge": "Σ Ladung",
+  "info_volt": "Volt",
+  "info_amp": "Amp",
+  "info_time": "Zeit",
+  "info_type": "Typ",
+  "tooltip_connected": "Verbunden",
+  "tooltip_disconnected": "Getrennt",
+  "config_title": "Titel (optional – Standard ist Gerätename)",
+  "config_show_model": "Modell als Untertitel anzeigen",
+  "config_show_header": "Header mit Eingangswerten anzeigen",
+  "error_no_device": "Bitte ein Gerät auswählen"
+}

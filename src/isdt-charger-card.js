@@ -6,11 +6,9 @@
  * discovers all entities via translation_key and sub-device mapping.
  */
 
-export const CARD_VERSION = "0.3.2";
+import { t } from './translations.js';
 
-const STATUS_LABELS = {
-  empty: "Empty", idle: "Idle", charging: "Charging", done: "Done", error: "Error",
-};
+export const CARD_VERSION = "0.4.0";
 
 export class ISDTChargerCard extends HTMLElement {
   constructor() {
@@ -20,6 +18,7 @@ export class ISDTChargerCard extends HTMLElement {
     this._config = null;
     this._entities = null;
     this._timeInterval = null;
+    this._lastSlotKey = null;
   }
 
   static getConfigForm() {
@@ -40,12 +39,18 @@ export class ISDTChargerCard extends HTMLElement {
         },
         {
           name: "title",
-          label: "Title (optional – defaults to device name)",
+          label: t(null, "config_title"),
           selector: { text: {} },
         },
         {
+          name: "show_model",
+          label: t(null, "config_show_model"),
+          selector: { boolean: {} },
+          default: true,
+        },
+        {
           name: "show_header",
-          label: "Show header with input stats",
+          label: t(null, "config_show_header"),
           selector: { boolean: {} },
         },
       ],
@@ -60,19 +65,20 @@ export class ISDTChargerCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.device_id) throw new Error("Please select a device");
-    this._config = {
-      show_header: config.show_header !== false,
-      ...config,
-    };
-    if (this._hass) {
-      this._entities = this._findEntities(this._hass, config.device_id);
+    this._isPreview = !config.device_id;
+    if (!this._isPreview) {
+      this._config = { show_header: config.show_header !== false, ...config };
+      if (this._hass) {
+        this._entities = this._findEntities(this._hass, config.device_id);
+      }
+    } else {
+      this._config = { show_header: true, ...config };
     }
   }
 
   set hass(hass) {
     this._hass = hass;
-    if (this._config?.device_id && !this._entities) {
+    if (!this._isPreview && this._config?.device_id && !this._entities) {
       this._entities = this._findEntities(hass, this._config.device_id);
     }
     this._render();
@@ -124,6 +130,13 @@ export class ISDTChargerCard extends HTMLElement {
             break;
           }
         }
+        // Fallback: main-device entities via device_class
+        const state = hass.states[entityId];
+        const dc = state?.attributes?.device_class;
+        if (dc && entity.device_id === deviceId) {
+          if (!main.input_voltage && dc === "voltage") main.input_voltage = entityId;
+          if (!main.input_current && dc === "current") main.input_current = entityId;
+        }
       } else if (entity.device_id in slotDeviceMap) {
         // Slot sub-device
         const slotNum = slotDeviceMap[entity.device_id];
@@ -137,11 +150,20 @@ export class ISDTChargerCard extends HTMLElement {
           case "charge_time":      slots[slotNum].charge_time = entityId; break;
           case "battery_type":     slots[slotNum].battery_type = entityId; break;
         }
+        // Fallback: slot entities via device_class
+        const slotState = hass.states[entityId];
+        const slotDc = slotState?.attributes?.device_class;
+        if (slotDc) {
+          if (!slots[slotNum].output_voltage && slotDc === "voltage") slots[slotNum].output_voltage = entityId;
+          if (!slots[slotNum].charging_current && slotDc === "current") slots[slotNum].charging_current = entityId;
+        }
       }
     }
 
     return { main, slots };
   }
+
+  _t(key) { return t(this._hass, key); }
 
   /* ── Entity state helpers ───────────────────────────── */
 
@@ -161,10 +183,61 @@ export class ISDTChargerCard extends HTMLElement {
   _render() {
     if (!this._hass || !this._config) return;
 
+    if (this._isPreview) {
+      this._renderPreview();
+      return;
+    }
+
     if (!this._entities) {
       this._entities = this._findEntities(this._hass, this._config.device_id);
     }
 
+    if (!this._entities || !this._config.device_id) {
+      const root = this.shadowRoot;
+      root.innerHTML = "";
+      const style = document.createElement("style");
+      style.textContent = this._css();
+      root.appendChild(style);
+      const card = document.createElement("ha-card");
+      card.innerHTML = `<div class="unavailable">${this._t("error_no_device")}</div>`;
+      root.appendChild(card);
+      return;
+    }
+
+    // Compute structural key: visible slots + their statuses
+    const use56 = [5, 6].some((n) => {
+      const s = this._entities.slots[n];
+      return s && this._st(s.status, "empty") !== "empty";
+    });
+    const visibleSlots = use56 ? [5, 6] : [1, 2, 3, 4];
+    const slotKey = visibleSlots.map((n) => {
+      const s = this._entities.slots[n];
+      const status = this._st(s?.status, "empty");
+      return `${n}:${status}`;
+    }).join("|");
+
+    const needsFull = this._lastSlotKey !== slotKey
+      || !this.shadowRoot.querySelector(".isdt-card");
+    this._lastSlotKey = slotKey;
+
+    if (needsFull) {
+      const root = this.shadowRoot;
+      root.innerHTML = "";
+
+      const style = document.createElement("style");
+      style.textContent = this._css();
+      root.appendChild(style);
+
+      const card = document.createElement("ha-card");
+      card.innerHTML = this._html();
+      root.appendChild(card);
+      this._bind(card);
+    } else {
+      this._updateDynamic();
+    }
+  }
+
+  _renderPreview() {
     const root = this.shadowRoot;
     root.innerHTML = "";
 
@@ -173,15 +246,107 @@ export class ISDTChargerCard extends HTMLElement {
     root.appendChild(style);
 
     const card = document.createElement("ha-card");
-    card.innerHTML = this._html();
+    const demos = [
+      { slot: 1, status: "charging", pct: 62, vol: 1.38, cur: 0.500, mah: 1240, wh: 1.71, type: "NiMH" },
+      { slot: 2, status: "done",     pct: 100, vol: 1.47, cur: 0, mah: 1950, wh: 2.87, type: "NiMH" },
+      { slot: 3, status: "charging", pct: 28, vol: 3.92, cur: 1.000, mah: 870, wh: 3.41, type: "LiIon" },
+      { slot: 4, status: "empty" },
+    ];
+
+    let h = '<div class="isdt-card">';
+    h += `
+      <div class="header">
+        <div class="header-top">
+          <div class="header-title">
+            <span class="isdt-logo">ISDT</span>
+            <span class="model-name">C4 Air</span>
+          </div>
+          <div class="header-icons">
+            <svg class="conn-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"
+                 title="${this._t("tooltip_connected")}">
+              <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+            </svg>
+            <button class="beep-btn on">
+              <ha-icon icon="mdi:volume-high"></ha-icon>
+            </button>
+            <svg class="more-info-btn" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <circle cx="12" cy="5" r="1.5"/>
+              <circle cx="12" cy="12" r="1.5"/>
+              <circle cx="12" cy="19" r="1.5"/>
+            </svg>
+          </div>
+        </div>
+        <div class="header-stats">
+          <div class="stat"><span class="stat-value">5.1<small>V</small></span><span class="stat-label">${this._t("header_input")}</span></div>
+          <div class="stat-div"></div>
+          <div class="stat"><span class="stat-value">1.50<small>A</small></span><span class="stat-label">${this._t("header_current")}</span></div>
+          <div class="stat-div"></div>
+          <div class="stat"><span class="stat-value">7.7<small>W</small></span><span class="stat-label">${this._t("header_power")}</span></div>
+          <div class="stat-div"></div>
+          <div class="stat"><span class="stat-value">1.50<small>A</small></span><span class="stat-label">${this._t("header_total_charge")}</span></div>
+        </div>
+      </div>`;
+    h += '<div class="battery-grid">';
+
+    for (const d of demos) {
+      const isEmpty = d.status === "empty";
+      const isCharging = d.status === "charging";
+      const isActive = isCharging || d.status === "done";
+      const pct = d.pct || 0;
+      const fillH = isEmpty ? 0 : Math.max(4, pct);
+      const color = isCharging ? this._chargeColor(pct) : null;
+      const fillStyle = `width:${fillH}%${color ? `;background:linear-gradient(90deg,${color.deep},${color.fill})` : ""}`;
+      const terminalStyle = color ? `background:${color.fill};box-shadow:0 0 8px ${color.glow}` : "";
+      const bodyStyle = color ? `border-color:${color.glow};box-shadow:0 0 16px ${color.shadow}` : "";
+      const accentColor = color?.fill ?? null;
+      const badgeStyle = accentColor ? `style="color:${accentColor}"` : "";
+
+      let center = "";
+      if (isEmpty) {
+        center = '<ha-icon icon="mdi:battery-off-outline" class="empty-icon-lg"></ha-icon>';
+      } else {
+        const pctStyle = accentColor ? `style="color:#fff;text-shadow:0 1px 6px rgba(0,0,0,0.35)"` : "";
+        const symStyle = accentColor ? `style="color:rgba(255,255,255,0.75)"` : "";
+        const boltStyle = accentColor ? `style="color:#fff"` : "";
+        center = `<div class="battery-pct">
+          <span class="pct-num" ${pctStyle}>${pct}</span><span class="pct-sym" ${symStyle}>%</span>${isCharging ? `<ha-icon icon="mdi:lightning-bolt" class="charging-bolt" ${boltStyle}></ha-icon>` : ""}
+        </div>`;
+      }
+
+      h += `
+        <div class="battery-slot ${d.status}" data-slot="${d.slot}">
+          <div class="battery-shell">
+            <div class="battery-body" ${bodyStyle ? `style="${bodyStyle}"` : ""}>
+              <div class="battery-fill" style="${fillStyle}"></div>
+              <div class="battery-content">
+                <span class="slot-badge">${d.slot}</span>
+                <span class="status-badge ${d.status}" ${badgeStyle}>${this._t("status_" + d.status)}</span>
+                ${center}
+              </div>
+            </div>
+            <div class="battery-terminal" ${terminalStyle ? `style="${terminalStyle}"` : ""}></div>
+          </div>
+          ${!isEmpty ? `<div class="battery-info">
+            <div class="info-row"><span class="lbl"><ha-icon icon="mdi:flash"></ha-icon>${this._t("info_volt")}</span><span class="val">${d.vol.toFixed(2)} V</span></div>
+            <div class="info-row"><span class="lbl"><ha-icon icon="mdi:current-dc"></ha-icon>${this._t("info_amp")}</span><span class="val">${d.cur.toFixed(3)} A</span></div>
+            <div class="info-row"><span class="lbl"><ha-icon icon="mdi:timer-outline"></ha-icon>${this._t("info_time")}</span><span class="val">00:42:15</span></div>
+            <div class="info-row"><span class="lbl"><ha-icon icon="mdi:atom"></ha-icon>${this._t("info_type")}</span><span class="val">${d.type}</span></div>
+            ${isActive ? `<div class="info-sep"></div><div class="info-sub"><span>${d.mah} mAh</span><span>${d.wh.toFixed(2)} Wh</span></div>` : ""}
+          </div>` : ""}
+        </div>`;
+    }
+
+    h += "</div></div>";
+    card.innerHTML = h;
     root.appendChild(card);
-    this._bind(card);
   }
 
   _html() {
     const { show_header } = this._config;
     const device = this._hass.devices[this._config.device_id];
-    const title = (this._config.title || device?.name || "ISDT Charger").replace(/^ISDT\s+/i, "");
+    const customTitle = this._config.title;
+    const model = (device?.model || device?.name || "ISDT Charger").replace(/^ISDT\s+/i, "");
+    const title = customTitle || model;
 
     // Determine mode: show slots 5+6 if any of them is non-empty, else slots 1–4
     const use56 = [5, 6].some((n) => {
@@ -198,8 +363,119 @@ export class ISDTChargerCard extends HTMLElement {
     return h;
   }
 
+  _updateDynamic() {
+    const root = this.shadowRoot;
+    if (!root) return;
+
+    // Update header stats
+    const { main } = this._entities;
+    const iV = this._num(main.input_voltage);
+    const iA = this._num(main.input_current);
+    const tA = this._num(main.total_charging_current);
+    const iW = (iV * iA).toFixed(1);
+
+    this._setField(root, "input-v", `${iV.toFixed(1)}<small>V</small>`);
+    this._setField(root, "input-a", `${iA.toFixed(2)}<small>A</small>`);
+    this._setField(root, "input-w", `${iW}<small>W</small>`);
+    this._setField(root, "total-a", `${tA.toFixed(2)}<small>A</small>`);
+
+    // Update connection icon
+    const connected = this._st(main.connected, "off") === "on";
+    const connIcon = root.querySelector(".conn-icon");
+    if (connIcon) {
+      connIcon.classList.toggle("disconnected", !connected);
+      connIcon.setAttribute("title", this._t(connected ? "tooltip_connected" : "tooltip_disconnected"));
+    }
+
+    // Update beep button
+    const beep = this._st(main.beep, "off") === "on";
+    const beepBtn = root.querySelector(".beep-btn");
+    if (beepBtn) {
+      beepBtn.className = `beep-btn ${beep ? "on" : ""}`;
+      const icon = beepBtn.querySelector("ha-icon");
+      if (icon) icon.setAttribute("icon", beep ? "mdi:volume-high" : "mdi:volume-off");
+    }
+
+    // Update each slot
+    const use56 = [5, 6].some((n) => {
+      const s = this._entities.slots[n];
+      return s && this._st(s.status, "empty") !== "empty";
+    });
+    const visibleSlots = use56 ? [5, 6] : [1, 2, 3, 4];
+
+    for (const slot of visibleSlots) {
+      const slotEl = root.querySelector(`[data-slot="${slot}"]`);
+      if (!slotEl) continue;
+
+      const e = this._entities.slots[slot];
+      const isCharging = this._st(e?.status, "empty") === "charging";
+      const pct = this._num(e?.capacity, 0);
+      const cur = this._num(e?.charging_current, 0);
+      const vol = this._num(e?.output_voltage, 0);
+      const btype = this._st(e?.battery_type, "–");
+      const mah = this._num(e?.capacity_done, 0);
+      const wh = this._num(e?.energy_done, 0);
+
+      // Update fill width and colors
+      const fillEl = slotEl.querySelector(".battery-fill");
+      if (fillEl) {
+        const status = this._st(e?.status, "empty");
+        const fillH = status === "empty" ? 0 : Math.max(4, pct);
+        const color = isCharging ? this._chargeColor(pct) : null;
+        fillEl.style.width = `${fillH}%`;
+        if (color) fillEl.style.background = `linear-gradient(90deg,${color.deep},${color.fill})`;
+      }
+
+      // Update terminal/body colors when charging
+      if (isCharging) {
+        const color = this._chargeColor(pct);
+        const termEl = slotEl.querySelector(".battery-terminal");
+        if (termEl) { termEl.style.background = color.fill; termEl.style.boxShadow = `0 0 8px ${color.glow}`; }
+        const bodyEl = slotEl.querySelector(".battery-body");
+        if (bodyEl) { bodyEl.style.borderColor = color.glow; bodyEl.style.boxShadow = `0 0 16px ${color.shadow}`; }
+      }
+
+      // Update percentage text
+      const pctNum = slotEl.querySelector(".pct-num");
+      if (pctNum) pctNum.textContent = Math.round(pct);
+
+      // Update info row values
+      const vals = slotEl.querySelectorAll(".info-row .val");
+      if (vals.length >= 4) {
+        vals[0].textContent = `${vol.toFixed(2)} V`;
+        vals[1].textContent = `${cur.toFixed(3)} A`;
+        // vals[2] is time-val — updated by the timer interval
+        vals[3].textContent = btype !== "unavailable" ? btype : "–";
+      }
+
+      // Update mAh/Wh sub-row
+      const subs = slotEl.querySelectorAll(".info-sub span");
+      if (subs.length >= 2) {
+        subs[0].textContent = `${mah.toFixed(0)} mAh`;
+        subs[1].textContent = `${wh.toFixed(2)} Wh`;
+      }
+    }
+  }
+
+  _setField(root, name, html) {
+    const el = root.querySelector(`[data-field="${name}"]`);
+    if (el) el.innerHTML = html;
+  }
+
+  _navigateToDevice() {
+    const deviceId = this._config?.device_id;
+    if (!deviceId) return;
+    const path = `/config/devices/device/${deviceId}`;
+    history.pushState(null, "", path);
+    window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
+  }
+
   _headerHTML(title) {
     const { main } = this._entities;
+    const device = this._hass.devices[this._config.device_id];
+    const customTitle = this._config.title;
+    const model = (device?.model || device?.name || "").replace(/^ISDT\s+/i, "");
+    const showModel = this._config.show_model !== false;
     const iV = this._num(main.input_voltage);
     const iA = this._num(main.input_current);
     const tA = this._num(main.total_charging_current);
@@ -211,22 +487,35 @@ export class ISDTChargerCard extends HTMLElement {
       <div class="header">
         <div class="header-top">
           <div class="header-title">
-            <span class="isdt-logo">ISDT</span>
-            <span class="model-name">${title}</span>
-            <span class="conn-dot ${connected ? "on" : ""}" title="${connected ? "Connected" : "Disconnected"}"></span>
+            ${customTitle
+              ? `<span class="title-text">${customTitle}</span>`
+              : `<span class="isdt-logo">ISDT</span>`}
+            ${showModel && model ? `<span class="model-name">${model}</span>` : ""}
           </div>
-          <button class="beep-btn ${beep ? "on" : ""}" data-entity="${main.beep || ""}">
-            <ha-icon icon="mdi:${beep ? "volume-high" : "volume-off"}"></ha-icon>
-          </button>
+          <div class="header-icons">
+            <svg class="conn-icon ${connected ? "" : "disconnected"}" viewBox="0 0 24 24" fill="currentColor" stroke="none"
+                 data-entity="${main.connected || ""}"
+                 title="${this._t(connected ? "tooltip_connected" : "tooltip_disconnected")}">
+              <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+            </svg>
+            <button class="beep-btn ${beep ? "on" : ""}" data-entity="${main.beep || ""}">
+              <ha-icon icon="mdi:${beep ? "volume-high" : "volume-off"}"></ha-icon>
+            </button>
+            <svg class="more-info-btn" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <circle cx="12" cy="5" r="1.5"/>
+              <circle cx="12" cy="12" r="1.5"/>
+              <circle cx="12" cy="19" r="1.5"/>
+            </svg>
+          </div>
         </div>
         <div class="header-stats">
-          <div class="stat"><span class="stat-value">${iV.toFixed(1)}<small>V</small></span><span class="stat-label">Input</span></div>
+          <div class="stat"><span class="stat-value" data-field="input-v">${iV.toFixed(1)}<small>V</small></span><span class="stat-label">${this._t("header_input")}</span></div>
           <div class="stat-div"></div>
-          <div class="stat"><span class="stat-value">${iA.toFixed(2)}<small>A</small></span><span class="stat-label">Current</span></div>
+          <div class="stat"><span class="stat-value" data-field="input-a">${iA.toFixed(2)}<small>A</small></span><span class="stat-label">${this._t("header_current")}</span></div>
           <div class="stat-div"></div>
-          <div class="stat"><span class="stat-value">${iW}<small>W</small></span><span class="stat-label">Power</span></div>
+          <div class="stat"><span class="stat-value" data-field="input-w">${iW}<small>W</small></span><span class="stat-label">${this._t("header_power")}</span></div>
           <div class="stat-div"></div>
-          <div class="stat"><span class="stat-value">${tA.toFixed(2)}<small>A</small></span><span class="stat-label">Σ Charge</span></div>
+          <div class="stat"><span class="stat-value" data-field="total-a">${tA.toFixed(2)}<small>A</small></span><span class="stat-label">${this._t("header_total_charge")}</span></div>
         </div>
       </div>`;
   }
@@ -311,7 +600,7 @@ export class ISDTChargerCard extends HTMLElement {
             </div>
             <div class="battery-content">
               <span class="slot-badge">${slot}</span>
-              <span class="status-badge ${status}" data-entity="${e?.status || ""}" ${badgeStyle}>${STATUS_LABELS[status] || status}</span>
+              <span class="status-badge ${status}" data-entity="${e?.status || ""}" ${badgeStyle}>${this._t("status_" + status)}</span>
               ${center}
             </div>
           </div>
@@ -319,19 +608,19 @@ export class ISDTChargerCard extends HTMLElement {
         </div>
         <div class="battery-info ${isEmpty ? "hidden" : ""}">
           <div class="info-row" data-entity="${e?.output_voltage || ""}">
-            <span class="lbl"><ha-icon icon="mdi:flash"></ha-icon>Volt</span>
+            <span class="lbl"><ha-icon icon="mdi:flash"></ha-icon>${this._t("info_volt")}</span>
             <span class="val">${vol.toFixed(2)} V</span>
           </div>
           <div class="info-row" data-entity="${e?.charging_current || ""}">
-            <span class="lbl"><ha-icon icon="mdi:current-dc"></ha-icon>Amp</span>
+            <span class="lbl"><ha-icon icon="mdi:current-dc"></ha-icon>${this._t("info_amp")}</span>
             <span class="val">${cur.toFixed(3)} A</span>
           </div>
           <div class="info-row" data-entity="${e?.charge_time || ""}">
-            <span class="lbl"><ha-icon icon="mdi:timer-outline"></ha-icon>Time</span>
+            <span class="lbl"><ha-icon icon="mdi:timer-outline"></ha-icon>${this._t("info_time")}</span>
             <span class="val time-val" ${isCharging ? `data-since="${since || ""}"` : ""}>${timeStr}</span>
           </div>
           <div class="info-row" data-entity="${e?.battery_type || ""}">
-            <span class="lbl"><ha-icon icon="mdi:atom"></ha-icon>Type</span>
+            <span class="lbl"><ha-icon icon="mdi:atom"></ha-icon>${this._t("info_type")}</span>
             <span class="val">${btype !== "unavailable" ? btype : "–"}</span>
           </div>
           ${isActive ? `
@@ -354,6 +643,14 @@ export class ISDTChargerCard extends HTMLElement {
         this._hass.callService("switch", "toggle", {
           entity_id: beepBtn.dataset.entity,
         });
+      });
+    }
+
+    const moreBtn = card.querySelector(".more-info-btn");
+    if (moreBtn) {
+      moreBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this._navigateToDevice();
       });
     }
 
@@ -409,6 +706,7 @@ export class ISDTChargerCard extends HTMLElement {
       border-radius: var(--ha-card-border-radius, 12px);
       border: 1px solid var(--ha-card-border-color, var(--divider-color, #e0e0e0));
       overflow: hidden;
+      container-type: inline-size;
       font-family: var(--paper-font-body1_-_font-family, -apple-system, 'Segoe UI', sans-serif);
     }
 
@@ -423,37 +721,49 @@ export class ISDTChargerCard extends HTMLElement {
       display: flex; align-items: center; justify-content: space-between;
       margin-bottom: 14px;
     }
-    .header-title { display: flex; align-items: baseline; gap: 8px; }
+    .header-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow: hidden; }
+    .header-icons { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
     .isdt-logo {
       font-weight: 800; font-size: 18px; letter-spacing: 2.5px;
       color: var(--primary-color, #03a9f4);
+    }
+    .title-text {
+      font-weight: 700; font-size: 15px; letter-spacing: -0.01em;
+      color: var(--primary-text-color);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .model-name {
       font-size: 13px; font-weight: 500;
       color: var(--secondary-text-color, #727272);
     }
-    .conn-dot {
-      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-      background: var(--disabled-text-color, #bdbdbd);
-      transition: background 0.3s, box-shadow 0.3s;
+    .conn-icon {
+      width: 18px; height: 18px; flex-shrink: 0;
+      color: var(--primary-color, #03a9f4);
+      fill: currentColor; cursor: pointer;
+      opacity: 1; transition: color 0.4s, opacity 0.4s;
     }
-    .conn-dot.on {
-      background: #4caf50;
-      box-shadow: 0 0 6px rgba(76,175,80,0.5);
+    .conn-icon.disconnected {
+      color: var(--disabled-text-color, #9ca3af);
+      opacity: 0.3;
     }
     .beep-btn {
-      background: var(--card-background-color, #fff);
-      border: 1px solid var(--divider-color, #e0e0e0);
-      border-radius: 8px; padding: 6px 10px; cursor: pointer;
+      background: none; border: none; padding: 4px; cursor: pointer;
       color: var(--secondary-text-color); display: flex; align-items: center;
-      transition: all 0.15s;
+      opacity: 0.5; transition: opacity 0.2s, color 0.2s;
     }
-    .beep-btn:hover { filter: brightness(0.95); }
+    .beep-btn:hover { opacity: 1; }
     .beep-btn.on {
       color: var(--primary-color, #03a9f4);
-      border-color: var(--primary-color, #03a9f4);
+      opacity: 0.85;
     }
+    .beep-btn.on:hover { opacity: 1; }
     .beep-btn ha-icon { --mdc-icon-size: 20px; }
+    .more-info-btn {
+      width: 18px; height: 18px; cursor: pointer;
+      opacity: 0.5; transition: opacity 0.2s;
+      color: var(--secondary-text-color);
+    }
+    .more-info-btn:hover { opacity: 1; }
     .header-stats {
       display: flex; align-items: center; justify-content: space-between;
       background: var(--secondary-background-color, rgba(0,0,0,0.04));
@@ -624,6 +934,23 @@ export class ISDTChargerCard extends HTMLElement {
     .info-sub span:hover { color: var(--primary-text-color); }
     .status-badge { cursor: pointer; }
     .status-badge:hover { filter: brightness(0.85); }
+
+    /* ════════ Unavailable ════════ */
+    .unavailable {
+      padding: 32px 16px;
+      text-align: center;
+      color: var(--secondary-text-color);
+      font-size: 14px;
+    }
+
+    /* ════════ Narrow card ════════ */
+    @container (max-width: 350px) {
+      .battery-info { display: none; }
+      .header-stats { padding: 8px 4px; }
+      .stat-value { font-size: 13px; }
+      .stat-label { font-size: 8px; }
+      .battery-grid { gap: 8px; padding: 8px; }
+    }
     `;
   }
 }
