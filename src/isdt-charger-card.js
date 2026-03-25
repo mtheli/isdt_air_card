@@ -8,7 +8,7 @@
 
 import { t } from './translations.js';
 
-export const CARD_VERSION = "0.4.0";
+export const CARD_VERSION = "0.4.1";
 
 export class ISDTChargerCard extends HTMLElement {
   constructor() {
@@ -31,7 +31,7 @@ export class ISDTChargerCard extends HTMLElement {
             device: {
               filter: {
                 integration: "isdt_air_ble",
-                entity: [{ domain: "switch" }],
+                entity: [{ domain: "binary_sensor", device_class: "connectivity" }],
               },
               multiple: false,
             },
@@ -57,28 +57,16 @@ export class ISDTChargerCard extends HTMLElement {
     };
   }
 
-  static getStubConfig(hass) {
-    const entry = Object.values(hass.entities).find(
-      (e) => e.platform === "isdt_air_ble" && e.translation_key === "connected"
-    );
-    return { device_id: entry ? entry.device_id : "" };
-  }
-
   setConfig(config) {
-    this._isPreview = !config.device_id;
-    if (!this._isPreview) {
-      this._config = { show_header: config.show_header !== false, ...config };
-      if (this._hass) {
-        this._entities = this._findEntities(this._hass, config.device_id);
-      }
-    } else {
-      this._config = { show_header: true, ...config };
+    this._config = { show_header: config.show_header !== false, ...config };
+    if (this._hass && config.device_id) {
+      this._entities = this._findEntities(this._hass, config.device_id);
     }
   }
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._isPreview && this._config?.device_id && !this._entities) {
+    if (this._config?.device_id && !this._entities) {
       this._entities = this._findEntities(hass, this._config.device_id);
     }
     this._render();
@@ -183,11 +171,6 @@ export class ISDTChargerCard extends HTMLElement {
   _render() {
     if (!this._hass || !this._config) return;
 
-    if (this._isPreview) {
-      this._renderPreview();
-      return;
-    }
-
     if (!this._entities) {
       this._entities = this._findEntities(this._hass, this._config.device_id);
     }
@@ -235,110 +218,6 @@ export class ISDTChargerCard extends HTMLElement {
     } else {
       this._updateDynamic();
     }
-  }
-
-  _renderPreview() {
-    const root = this.shadowRoot;
-    root.innerHTML = "";
-
-    const style = document.createElement("style");
-    style.textContent = this._css();
-    root.appendChild(style);
-
-    const card = document.createElement("ha-card");
-    const demos = [
-      { slot: 1, status: "charging", pct: 62, vol: 1.38, cur: 0.500, mah: 1240, wh: 1.71, type: "NiMH" },
-      { slot: 2, status: "done",     pct: 100, vol: 1.47, cur: 0, mah: 1950, wh: 2.87, type: "NiMH" },
-      { slot: 3, status: "charging", pct: 28, vol: 3.92, cur: 1.000, mah: 870, wh: 3.41, type: "LiIon" },
-      { slot: 4, status: "empty" },
-    ];
-
-    let h = '<div class="isdt-card">';
-    h += `
-      <div class="header">
-        <div class="header-top">
-          <div class="header-title">
-            <span class="isdt-logo">ISDT</span>
-            <span class="model-name">C4 Air</span>
-          </div>
-          <div class="header-icons">
-            <svg class="conn-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none"
-                 title="${this._t("tooltip_connected")}">
-              <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
-            </svg>
-            <button class="beep-btn on">
-              <ha-icon icon="mdi:volume-high"></ha-icon>
-            </button>
-            <svg class="more-info-btn" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-              <circle cx="12" cy="5" r="1.5"/>
-              <circle cx="12" cy="12" r="1.5"/>
-              <circle cx="12" cy="19" r="1.5"/>
-            </svg>
-          </div>
-        </div>
-        <div class="header-stats">
-          <div class="stat"><span class="stat-value">5.1<small>V</small></span><span class="stat-label">${this._t("header_input")}</span></div>
-          <div class="stat-div"></div>
-          <div class="stat"><span class="stat-value">1.50<small>A</small></span><span class="stat-label">${this._t("header_current")}</span></div>
-          <div class="stat-div"></div>
-          <div class="stat"><span class="stat-value">7.7<small>W</small></span><span class="stat-label">${this._t("header_power")}</span></div>
-          <div class="stat-div"></div>
-          <div class="stat"><span class="stat-value">1.50<small>A</small></span><span class="stat-label">${this._t("header_total_charge")}</span></div>
-        </div>
-      </div>`;
-    h += '<div class="battery-grid">';
-
-    for (const d of demos) {
-      const isEmpty = d.status === "empty";
-      const isCharging = d.status === "charging";
-      const isActive = isCharging || d.status === "done";
-      const pct = d.pct || 0;
-      const fillH = isEmpty ? 0 : Math.max(4, pct);
-      const color = isCharging ? this._chargeColor(pct) : null;
-      const fillStyle = `width:${fillH}%${color ? `;background:linear-gradient(90deg,${color.deep},${color.fill})` : ""}`;
-      const terminalStyle = color ? `background:${color.fill};box-shadow:0 0 8px ${color.glow}` : "";
-      const bodyStyle = color ? `border-color:${color.glow};box-shadow:0 0 16px ${color.shadow}` : "";
-      const accentColor = color?.fill ?? null;
-      const badgeStyle = accentColor ? `style="color:${accentColor}"` : "";
-
-      let center = "";
-      if (isEmpty) {
-        center = '<ha-icon icon="mdi:battery-off-outline" class="empty-icon-lg"></ha-icon>';
-      } else {
-        const pctStyle = accentColor ? `style="color:#fff;text-shadow:0 1px 6px rgba(0,0,0,0.35)"` : "";
-        const symStyle = accentColor ? `style="color:rgba(255,255,255,0.75)"` : "";
-        const boltStyle = accentColor ? `style="color:#fff"` : "";
-        center = `<div class="battery-pct">
-          <span class="pct-num" ${pctStyle}>${pct}</span><span class="pct-sym" ${symStyle}>%</span>${isCharging ? `<ha-icon icon="mdi:lightning-bolt" class="charging-bolt" ${boltStyle}></ha-icon>` : ""}
-        </div>`;
-      }
-
-      h += `
-        <div class="battery-slot ${d.status}" data-slot="${d.slot}">
-          <div class="battery-shell">
-            <div class="battery-body" ${bodyStyle ? `style="${bodyStyle}"` : ""}>
-              <div class="battery-fill" style="${fillStyle}"></div>
-              <div class="battery-content">
-                <span class="slot-badge">${d.slot}</span>
-                <span class="status-badge ${d.status}" ${badgeStyle}>${this._t("status_" + d.status)}</span>
-                ${center}
-              </div>
-            </div>
-            <div class="battery-terminal" ${terminalStyle ? `style="${terminalStyle}"` : ""}></div>
-          </div>
-          ${!isEmpty ? `<div class="battery-info">
-            <div class="info-row"><span class="lbl"><ha-icon icon="mdi:flash"></ha-icon>${this._t("info_volt")}</span><span class="val">${d.vol.toFixed(2)} V</span></div>
-            <div class="info-row"><span class="lbl"><ha-icon icon="mdi:current-dc"></ha-icon>${this._t("info_amp")}</span><span class="val">${d.cur.toFixed(3)} A</span></div>
-            <div class="info-row"><span class="lbl"><ha-icon icon="mdi:timer-outline"></ha-icon>${this._t("info_time")}</span><span class="val">00:42:15</span></div>
-            <div class="info-row"><span class="lbl"><ha-icon icon="mdi:atom"></ha-icon>${this._t("info_type")}</span><span class="val">${d.type}</span></div>
-            ${isActive ? `<div class="info-sep"></div><div class="info-sub"><span>${d.mah} mAh</span><span>${d.wh.toFixed(2)} Wh</span></div>` : ""}
-          </div>` : ""}
-        </div>`;
-    }
-
-    h += "</div></div>";
-    card.innerHTML = h;
-    root.appendChild(card);
   }
 
   _html() {

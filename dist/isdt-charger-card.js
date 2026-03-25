@@ -1,17 +1,33 @@
+
+function $parcel$interopDefault(a) {
+  return a && a.__esModule ? a.default : a;
+}
 /**
  * ISDT Charger Card v0.2.0 – Device-based, Battery Style, HA Theme-Aware
  * Custom Lovelace Card for Home Assistant
  *
  * Selects a device from the isdt_air_ble integration and dynamically
  * discovers all entities via translation_key and sub-device mapping.
- */ const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.3.2";
-const $9a3262f48b2f355e$var$STATUS_LABELS = {
-    empty: "Empty",
-    idle: "Idle",
-    charging: "Charging",
-    done: "Done",
-    error: "Error"
+ */ var $76eee68ef692a3c3$exports = {};
+$76eee68ef692a3c3$exports = JSON.parse('{"status_empty":"Empty","status_idle":"Idle","status_charging":"Charging","status_done":"Done","status_error":"Error","header_input":"Input","header_current":"Current","header_power":"Power","header_total_charge":"\u03A3 Charge","info_volt":"Volt","info_amp":"Amp","info_time":"Time","info_type":"Type","tooltip_connected":"Connected","tooltip_disconnected":"Disconnected","config_title":"Title (optional \u2013 defaults to device name)","config_show_model":"Show model as subtitle","config_show_header":"Show header with input stats","error_no_device":"Please select a device"}');
+
+
+var $238d401f28c1db46$exports = {};
+$238d401f28c1db46$exports = JSON.parse('{"status_empty":"Leer","status_idle":"Bereit","status_charging":"L\xe4dt","status_done":"Fertig","status_error":"Fehler","header_input":"Input","header_current":"Strom","header_power":"Leistung","header_total_charge":"\u03A3 Ladung","info_volt":"Volt","info_amp":"Amp","info_time":"Zeit","info_type":"Typ","tooltip_connected":"Verbunden","tooltip_disconnected":"Getrennt","config_title":"Titel (optional \u2013 Standard ist Ger\xe4tename)","config_show_model":"Modell als Untertitel anzeigen","config_show_header":"Header mit Eingangswerten anzeigen","error_no_device":"Bitte ein Ger\xe4t ausw\xe4hlen"}');
+
+
+const $d8078e452c66bdbe$var$LOCALES = {
+    en: (/*@__PURE__*/$parcel$interopDefault($76eee68ef692a3c3$exports)),
+    de: (/*@__PURE__*/$parcel$interopDefault($238d401f28c1db46$exports))
 };
+function $d8078e452c66bdbe$export$625550452a3fa3ec(hass, key) {
+    const lang = hass?.language || 'en';
+    const locale = $d8078e452c66bdbe$var$LOCALES[lang] || $d8078e452c66bdbe$var$LOCALES.en;
+    return locale[key] || $d8078e452c66bdbe$var$LOCALES.en[key] || key;
+}
+
+
+const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.4.1";
 class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
     constructor(){
         super();
@@ -22,6 +38,7 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
         this._config = null;
         this._entities = null;
         this._timeInterval = null;
+        this._lastSlotKey = null;
     }
     static getConfigForm() {
         return {
@@ -35,7 +52,8 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
                                 integration: "isdt_air_ble",
                                 entity: [
                                     {
-                                        domain: "switch"
+                                        domain: "binary_sensor",
+                                        device_class: "connectivity"
                                     }
                                 ]
                             },
@@ -45,14 +63,22 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
                 },
                 {
                     name: "title",
-                    label: "Title (optional \u2013 defaults to device name)",
+                    label: (0, $d8078e452c66bdbe$export$625550452a3fa3ec)(null, "config_title"),
                     selector: {
                         text: {}
                     }
                 },
                 {
+                    name: "show_model",
+                    label: (0, $d8078e452c66bdbe$export$625550452a3fa3ec)(null, "config_show_model"),
+                    selector: {
+                        boolean: {}
+                    },
+                    default: true
+                },
+                {
                     name: "show_header",
-                    label: "Show header with input stats",
+                    label: (0, $d8078e452c66bdbe$export$625550452a3fa3ec)(null, "config_show_header"),
                     selector: {
                         boolean: {}
                     }
@@ -60,19 +86,12 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
             ]
         };
     }
-    static getStubConfig(hass) {
-        const entry = Object.values(hass.entities).find((e)=>e.platform === "isdt_air_ble" && e.translation_key === "connected");
-        return {
-            device_id: entry ? entry.device_id : ""
-        };
-    }
     setConfig(config) {
-        if (!config.device_id) throw new Error("Please select a device");
         this._config = {
             show_header: config.show_header !== false,
             ...config
         };
-        if (this._hass) this._entities = this._findEntities(this._hass, config.device_id);
+        if (this._hass && config.device_id) this._entities = this._findEntities(this._hass, config.device_id);
     }
     set hass(hass) {
         this._hass = hass;
@@ -97,36 +116,44 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
         // Map entities by translation_key
         for (const [entityId, entity] of Object.entries(hass.entities || {})){
             const tk = entity.translation_key;
-            if (entity.device_id === deviceId) // Main device
-            switch(tk){
-                case "input_voltage":
-                    main.input_voltage = entityId;
-                    break;
-                case "input_current":
-                    main.input_current = entityId;
-                    break;
-                case "total_charging_current":
-                    main.total_charging_current = entityId;
-                    break;
-                case "connected":
-                    main.connected = entityId;
-                    break;
-                case "beep":
-                    main.beep = entityId;
-                    break;
-                case "status":
-                    {
-                        // One status sensor per slot — differentiate via entity_id (…_slot_N_status)
-                        const m = entityId.match(/_slot_(\d+)_status/);
-                        if (m) {
-                            const slotNum = parseInt(m[1]);
-                            if (!slots[slotNum]) slots[slotNum] = {};
-                            slots[slotNum].status = entityId;
-                        }
+            if (entity.device_id === deviceId) {
+                // Main device
+                switch(tk){
+                    case "input_voltage":
+                        main.input_voltage = entityId;
                         break;
-                    }
-            }
-            else if (entity.device_id in slotDeviceMap) {
+                    case "input_current":
+                        main.input_current = entityId;
+                        break;
+                    case "total_charging_current":
+                        main.total_charging_current = entityId;
+                        break;
+                    case "connected":
+                        main.connected = entityId;
+                        break;
+                    case "beep":
+                        main.beep = entityId;
+                        break;
+                    case "status":
+                        {
+                            // One status sensor per slot — differentiate via entity_id (…_slot_N_status)
+                            const m = entityId.match(/_slot_(\d+)_status/);
+                            if (m) {
+                                const slotNum = parseInt(m[1]);
+                                if (!slots[slotNum]) slots[slotNum] = {};
+                                slots[slotNum].status = entityId;
+                            }
+                            break;
+                        }
+                }
+                // Fallback: main-device entities via device_class
+                const state = hass.states[entityId];
+                const dc = state?.attributes?.device_class;
+                if (dc && entity.device_id === deviceId) {
+                    if (!main.input_voltage && dc === "voltage") main.input_voltage = entityId;
+                    if (!main.input_current && dc === "current") main.input_current = entityId;
+                }
+            } else if (entity.device_id in slotDeviceMap) {
                 // Slot sub-device
                 const slotNum = slotDeviceMap[entity.device_id];
                 if (!slots[slotNum]) slots[slotNum] = {};
@@ -153,12 +180,22 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
                         slots[slotNum].battery_type = entityId;
                         break;
                 }
+                // Fallback: slot entities via device_class
+                const slotState = hass.states[entityId];
+                const slotDc = slotState?.attributes?.device_class;
+                if (slotDc) {
+                    if (!slots[slotNum].output_voltage && slotDc === "voltage") slots[slotNum].output_voltage = entityId;
+                    if (!slots[slotNum].charging_current && slotDc === "current") slots[slotNum].charging_current = entityId;
+                }
             }
         }
         return {
             main: main,
             slots: slots
         };
+    }
+    _t(key) {
+        return (0, $d8078e452c66bdbe$export$625550452a3fa3ec)(this._hass, key);
     }
     /* ── Entity state helpers ───────────────────────────── */ _st(eid, fb) {
         if (!eid || !this._hass?.states[eid]) return fb ?? "unavailable";
@@ -172,20 +209,59 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
     /* ── Render ─────────────────────────────────────────── */ _render() {
         if (!this._hass || !this._config) return;
         if (!this._entities) this._entities = this._findEntities(this._hass, this._config.device_id);
-        const root = this.shadowRoot;
-        root.innerHTML = "";
-        const style = document.createElement("style");
-        style.textContent = this._css();
-        root.appendChild(style);
-        const card = document.createElement("ha-card");
-        card.innerHTML = this._html();
-        root.appendChild(card);
-        this._bind(card);
+        if (!this._entities || !this._config.device_id) {
+            const root = this.shadowRoot;
+            root.innerHTML = "";
+            const style = document.createElement("style");
+            style.textContent = this._css();
+            root.appendChild(style);
+            const card = document.createElement("ha-card");
+            card.innerHTML = `<div class="unavailable">${this._t("error_no_device")}</div>`;
+            root.appendChild(card);
+            return;
+        }
+        // Compute structural key: visible slots + their statuses
+        const use56 = [
+            5,
+            6
+        ].some((n)=>{
+            const s = this._entities.slots[n];
+            return s && this._st(s.status, "empty") !== "empty";
+        });
+        const visibleSlots = use56 ? [
+            5,
+            6
+        ] : [
+            1,
+            2,
+            3,
+            4
+        ];
+        const slotKey = visibleSlots.map((n)=>{
+            const s = this._entities.slots[n];
+            const status = this._st(s?.status, "empty");
+            return `${n}:${status}`;
+        }).join("|");
+        const needsFull = this._lastSlotKey !== slotKey || !this.shadowRoot.querySelector(".isdt-card");
+        this._lastSlotKey = slotKey;
+        if (needsFull) {
+            const root = this.shadowRoot;
+            root.innerHTML = "";
+            const style = document.createElement("style");
+            style.textContent = this._css();
+            root.appendChild(style);
+            const card = document.createElement("ha-card");
+            card.innerHTML = this._html();
+            root.appendChild(card);
+            this._bind(card);
+        } else this._updateDynamic();
     }
     _html() {
         const { show_header: show_header } = this._config;
         const device = this._hass.devices[this._config.device_id];
-        const title = (this._config.title || device?.name || "ISDT Charger").replace(/^ISDT\s+/i, "");
+        const customTitle = this._config.title;
+        const model = (device?.model || device?.name || "ISDT Charger").replace(/^ISDT\s+/i, "");
+        const title = customTitle || model;
         // Determine mode: show slots 5+6 if any of them is non-empty, else slots 1–4
         const use56 = [
             5,
@@ -210,8 +286,125 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
         h += "</div></div>";
         return h;
     }
+    _updateDynamic() {
+        const root = this.shadowRoot;
+        if (!root) return;
+        // Update header stats
+        const { main: main } = this._entities;
+        const iV = this._num(main.input_voltage);
+        const iA = this._num(main.input_current);
+        const tA = this._num(main.total_charging_current);
+        const iW = (iV * iA).toFixed(1);
+        this._setField(root, "input-v", `${iV.toFixed(1)}<small>V</small>`);
+        this._setField(root, "input-a", `${iA.toFixed(2)}<small>A</small>`);
+        this._setField(root, "input-w", `${iW}<small>W</small>`);
+        this._setField(root, "total-a", `${tA.toFixed(2)}<small>A</small>`);
+        // Update connection icon
+        const connected = this._st(main.connected, "off") === "on";
+        const connIcon = root.querySelector(".conn-icon");
+        if (connIcon) {
+            connIcon.classList.toggle("disconnected", !connected);
+            connIcon.setAttribute("title", this._t(connected ? "tooltip_connected" : "tooltip_disconnected"));
+        }
+        // Update beep button
+        const beep = this._st(main.beep, "off") === "on";
+        const beepBtn = root.querySelector(".beep-btn");
+        if (beepBtn) {
+            beepBtn.className = `beep-btn ${beep ? "on" : ""}`;
+            const icon = beepBtn.querySelector("ha-icon");
+            if (icon) icon.setAttribute("icon", beep ? "mdi:volume-high" : "mdi:volume-off");
+        }
+        // Update each slot
+        const use56 = [
+            5,
+            6
+        ].some((n)=>{
+            const s = this._entities.slots[n];
+            return s && this._st(s.status, "empty") !== "empty";
+        });
+        const visibleSlots = use56 ? [
+            5,
+            6
+        ] : [
+            1,
+            2,
+            3,
+            4
+        ];
+        for (const slot of visibleSlots){
+            const slotEl = root.querySelector(`[data-slot="${slot}"]`);
+            if (!slotEl) continue;
+            const e = this._entities.slots[slot];
+            const isCharging = this._st(e?.status, "empty") === "charging";
+            const pct = this._num(e?.capacity, 0);
+            const cur = this._num(e?.charging_current, 0);
+            const vol = this._num(e?.output_voltage, 0);
+            const btype = this._st(e?.battery_type, "\u2013");
+            const mah = this._num(e?.capacity_done, 0);
+            const wh = this._num(e?.energy_done, 0);
+            // Update fill width and colors
+            const fillEl = slotEl.querySelector(".battery-fill");
+            if (fillEl) {
+                const status = this._st(e?.status, "empty");
+                const fillH = status === "empty" ? 0 : Math.max(4, pct);
+                const color = isCharging ? this._chargeColor(pct) : null;
+                fillEl.style.width = `${fillH}%`;
+                if (color) fillEl.style.background = `linear-gradient(90deg,${color.deep},${color.fill})`;
+            }
+            // Update terminal/body colors when charging
+            if (isCharging) {
+                const color = this._chargeColor(pct);
+                const termEl = slotEl.querySelector(".battery-terminal");
+                if (termEl) {
+                    termEl.style.background = color.fill;
+                    termEl.style.boxShadow = `0 0 8px ${color.glow}`;
+                }
+                const bodyEl = slotEl.querySelector(".battery-body");
+                if (bodyEl) {
+                    bodyEl.style.borderColor = color.glow;
+                    bodyEl.style.boxShadow = `0 0 16px ${color.shadow}`;
+                }
+            }
+            // Update percentage text
+            const pctNum = slotEl.querySelector(".pct-num");
+            if (pctNum) pctNum.textContent = Math.round(pct);
+            // Update info row values
+            const vals = slotEl.querySelectorAll(".info-row .val");
+            if (vals.length >= 4) {
+                vals[0].textContent = `${vol.toFixed(2)} V`;
+                vals[1].textContent = `${cur.toFixed(3)} A`;
+                // vals[2] is time-val — updated by the timer interval
+                vals[3].textContent = btype !== "unavailable" ? btype : "\u2013";
+            }
+            // Update mAh/Wh sub-row
+            const subs = slotEl.querySelectorAll(".info-sub span");
+            if (subs.length >= 2) {
+                subs[0].textContent = `${mah.toFixed(0)} mAh`;
+                subs[1].textContent = `${wh.toFixed(2)} Wh`;
+            }
+        }
+    }
+    _setField(root, name, html) {
+        const el = root.querySelector(`[data-field="${name}"]`);
+        if (el) el.innerHTML = html;
+    }
+    _navigateToDevice() {
+        const deviceId = this._config?.device_id;
+        if (!deviceId) return;
+        const path = `/config/devices/device/${deviceId}`;
+        history.pushState(null, "", path);
+        window.dispatchEvent(new CustomEvent("location-changed", {
+            detail: {
+                replace: false
+            }
+        }));
+    }
     _headerHTML(title) {
         const { main: main } = this._entities;
+        const device = this._hass.devices[this._config.device_id];
+        const customTitle = this._config.title;
+        const model = (device?.model || device?.name || "").replace(/^ISDT\s+/i, "");
+        const showModel = this._config.show_model !== false;
         const iV = this._num(main.input_voltage);
         const iA = this._num(main.input_current);
         const tA = this._num(main.total_charging_current);
@@ -222,22 +415,33 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
       <div class="header">
         <div class="header-top">
           <div class="header-title">
-            <span class="isdt-logo">ISDT</span>
-            <span class="model-name">${title}</span>
-            <span class="conn-dot ${connected ? "on" : ""}" title="${connected ? "Connected" : "Disconnected"}"></span>
+            ${customTitle ? `<span class="title-text">${customTitle}</span>` : `<span class="isdt-logo">ISDT</span>`}
+            ${showModel && model ? `<span class="model-name">${model}</span>` : ""}
           </div>
-          <button class="beep-btn ${beep ? "on" : ""}" data-entity="${main.beep || ""}">
-            <ha-icon icon="mdi:${beep ? "volume-high" : "volume-off"}"></ha-icon>
-          </button>
+          <div class="header-icons">
+            <svg class="conn-icon ${connected ? "" : "disconnected"}" viewBox="0 0 24 24" fill="currentColor" stroke="none"
+                 data-entity="${main.connected || ""}"
+                 title="${this._t(connected ? "tooltip_connected" : "tooltip_disconnected")}">
+              <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+            </svg>
+            <button class="beep-btn ${beep ? "on" : ""}" data-entity="${main.beep || ""}">
+              <ha-icon icon="mdi:${beep ? "volume-high" : "volume-off"}"></ha-icon>
+            </button>
+            <svg class="more-info-btn" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <circle cx="12" cy="5" r="1.5"/>
+              <circle cx="12" cy="12" r="1.5"/>
+              <circle cx="12" cy="19" r="1.5"/>
+            </svg>
+          </div>
         </div>
         <div class="header-stats">
-          <div class="stat"><span class="stat-value">${iV.toFixed(1)}<small>V</small></span><span class="stat-label">Input</span></div>
+          <div class="stat"><span class="stat-value" data-field="input-v">${iV.toFixed(1)}<small>V</small></span><span class="stat-label">${this._t("header_input")}</span></div>
           <div class="stat-div"></div>
-          <div class="stat"><span class="stat-value">${iA.toFixed(2)}<small>A</small></span><span class="stat-label">Current</span></div>
+          <div class="stat"><span class="stat-value" data-field="input-a">${iA.toFixed(2)}<small>A</small></span><span class="stat-label">${this._t("header_current")}</span></div>
           <div class="stat-div"></div>
-          <div class="stat"><span class="stat-value">${iW}<small>W</small></span><span class="stat-label">Power</span></div>
+          <div class="stat"><span class="stat-value" data-field="input-w">${iW}<small>W</small></span><span class="stat-label">${this._t("header_power")}</span></div>
           <div class="stat-div"></div>
-          <div class="stat"><span class="stat-value">${tA.toFixed(2)}<small>A</small></span><span class="stat-label">\u{3A3} Charge</span></div>
+          <div class="stat"><span class="stat-value" data-field="total-a">${tA.toFixed(2)}<small>A</small></span><span class="stat-label">${this._t("header_total_charge")}</span></div>
         </div>
       </div>`;
     }
@@ -333,7 +537,7 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
             </div>
             <div class="battery-content">
               <span class="slot-badge">${slot}</span>
-              <span class="status-badge ${status}" data-entity="${e?.status || ""}" ${badgeStyle}>${$9a3262f48b2f355e$var$STATUS_LABELS[status] || status}</span>
+              <span class="status-badge ${status}" data-entity="${e?.status || ""}" ${badgeStyle}>${this._t("status_" + status)}</span>
               ${center}
             </div>
           </div>
@@ -341,19 +545,19 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
         </div>
         <div class="battery-info ${isEmpty ? "hidden" : ""}">
           <div class="info-row" data-entity="${e?.output_voltage || ""}">
-            <span class="lbl"><ha-icon icon="mdi:flash"></ha-icon>Volt</span>
+            <span class="lbl"><ha-icon icon="mdi:flash"></ha-icon>${this._t("info_volt")}</span>
             <span class="val">${vol.toFixed(2)} V</span>
           </div>
           <div class="info-row" data-entity="${e?.charging_current || ""}">
-            <span class="lbl"><ha-icon icon="mdi:current-dc"></ha-icon>Amp</span>
+            <span class="lbl"><ha-icon icon="mdi:current-dc"></ha-icon>${this._t("info_amp")}</span>
             <span class="val">${cur.toFixed(3)} A</span>
           </div>
           <div class="info-row" data-entity="${e?.charge_time || ""}">
-            <span class="lbl"><ha-icon icon="mdi:timer-outline"></ha-icon>Time</span>
+            <span class="lbl"><ha-icon icon="mdi:timer-outline"></ha-icon>${this._t("info_time")}</span>
             <span class="val time-val" ${isCharging ? `data-since="${since || ""}"` : ""}>${timeStr}</span>
           </div>
           <div class="info-row" data-entity="${e?.battery_type || ""}">
-            <span class="lbl"><ha-icon icon="mdi:atom"></ha-icon>Type</span>
+            <span class="lbl"><ha-icon icon="mdi:atom"></ha-icon>${this._t("info_type")}</span>
             <span class="val">${btype !== "unavailable" ? btype : "\u2013"}</span>
           </div>
           ${isActive ? `
@@ -372,6 +576,11 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
             this._hass.callService("switch", "toggle", {
                 entity_id: beepBtn.dataset.entity
             });
+        });
+        const moreBtn = card.querySelector(".more-info-btn");
+        if (moreBtn) moreBtn.addEventListener("click", (e)=>{
+            e.stopPropagation();
+            this._navigateToDevice();
         });
         card.querySelectorAll("[data-entity]").forEach((el)=>{
             if (!el.dataset.entity) return;
@@ -423,6 +632,7 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
       border-radius: var(--ha-card-border-radius, 12px);
       border: 1px solid var(--ha-card-border-color, var(--divider-color, #e0e0e0));
       overflow: hidden;
+      container-type: inline-size;
       font-family: var(--paper-font-body1_-_font-family, -apple-system, 'Segoe UI', sans-serif);
     }
 
@@ -437,37 +647,49 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
       display: flex; align-items: center; justify-content: space-between;
       margin-bottom: 14px;
     }
-    .header-title { display: flex; align-items: baseline; gap: 8px; }
+    .header-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow: hidden; }
+    .header-icons { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
     .isdt-logo {
       font-weight: 800; font-size: 18px; letter-spacing: 2.5px;
       color: var(--primary-color, #03a9f4);
+    }
+    .title-text {
+      font-weight: 700; font-size: 15px; letter-spacing: -0.01em;
+      color: var(--primary-text-color);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .model-name {
       font-size: 13px; font-weight: 500;
       color: var(--secondary-text-color, #727272);
     }
-    .conn-dot {
-      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-      background: var(--disabled-text-color, #bdbdbd);
-      transition: background 0.3s, box-shadow 0.3s;
+    .conn-icon {
+      width: 18px; height: 18px; flex-shrink: 0;
+      color: var(--primary-color, #03a9f4);
+      fill: currentColor; cursor: pointer;
+      opacity: 1; transition: color 0.4s, opacity 0.4s;
     }
-    .conn-dot.on {
-      background: #4caf50;
-      box-shadow: 0 0 6px rgba(76,175,80,0.5);
+    .conn-icon.disconnected {
+      color: var(--disabled-text-color, #9ca3af);
+      opacity: 0.3;
     }
     .beep-btn {
-      background: var(--card-background-color, #fff);
-      border: 1px solid var(--divider-color, #e0e0e0);
-      border-radius: 8px; padding: 6px 10px; cursor: pointer;
+      background: none; border: none; padding: 4px; cursor: pointer;
       color: var(--secondary-text-color); display: flex; align-items: center;
-      transition: all 0.15s;
+      opacity: 0.5; transition: opacity 0.2s, color 0.2s;
     }
-    .beep-btn:hover { filter: brightness(0.95); }
+    .beep-btn:hover { opacity: 1; }
     .beep-btn.on {
       color: var(--primary-color, #03a9f4);
-      border-color: var(--primary-color, #03a9f4);
+      opacity: 0.85;
     }
+    .beep-btn.on:hover { opacity: 1; }
     .beep-btn ha-icon { --mdc-icon-size: 20px; }
+    .more-info-btn {
+      width: 18px; height: 18px; cursor: pointer;
+      opacity: 0.5; transition: opacity 0.2s;
+      color: var(--secondary-text-color);
+    }
+    .more-info-btn:hover { opacity: 1; }
     .header-stats {
       display: flex; align-items: center; justify-content: space-between;
       background: var(--secondary-background-color, rgba(0,0,0,0.04));
@@ -638,6 +860,23 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
     .info-sub span:hover { color: var(--primary-text-color); }
     .status-badge { cursor: pointer; }
     .status-badge:hover { filter: brightness(0.85); }
+
+    /* \u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550} Unavailable \u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550} */
+    .unavailable {
+      padding: 32px 16px;
+      text-align: center;
+      color: var(--secondary-text-color);
+      font-size: 14px;
+    }
+
+    /* \u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550} Narrow card \u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550} */
+    @container (max-width: 350px) {
+      .battery-info { display: none; }
+      .header-stats { padding: 8px 4px; }
+      .stat-value { font-size: 13px; }
+      .stat-label { font-size: 8px; }
+      .battery-grid { gap: 8px; padding: 8px; }
+    }
     `;
     }
 }
