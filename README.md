@@ -68,6 +68,10 @@ The card uses HA's native device picker — just select your ISDT charger from t
 
 - [ISDT Air BLE Integration](https://github.com/mtheli/isdt_air_ble) — the Home Assistant integration this card is built for
 
+## Disclaimer
+
+This is an independent community project and is not affiliated with, endorsed by, or sponsored by ISDT. All product names, trademarks, and registered trademarks are property of their respective owners.
+
 ## License
 
 MIT
