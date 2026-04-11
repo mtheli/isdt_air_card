@@ -1,23 +1,41 @@
-# ISDT Charger Card
+# ISDT Air Card
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/v/release/mtheli/isdt_air_card)](https://github.com/mtheli/isdt_air_card/releases)
 [![License: MIT](https://img.shields.io/github/license/mtheli/isdt_air_card)](LICENSE)
 
-Custom Lovelace card for [ISDT Air BLE](https://github.com/mtheli/isdt_air_ble) chargers in Home Assistant. Select your charger device and all entities are discovered automatically. Battery-style design that adapts to your HA theme (light & dark).
+Custom Lovelace card for [ISDT Air BLE](https://github.com/mtheli/isdt_air_ble) chargers and adapters in Home Assistant. Select your device and all entities are discovered automatically. Adapts to your HA theme (light & dark).
 
-![ISDT Charger Card](images/screenshot.png)
+Two layouts, picked automatically from the device model:
+
+### Charger (C4 Air, NP2 Air, …)
+
+![ISDT Charger Layout](images/screenshot.png)
+
+### Adapter (MASS2)
+
+![ISDT Adapter Layout](images/screenshot-mass2.png)
 
 ## Features
 
-- **Device-based setup** — select your ISDT Air BLE device, no entity prefix needed
-- **Auto-discovery** of all entities via translation key and sub-device mapping
+### Charger layout
 - **Battery-shaped slots** with liquid fill level, wave animation & bubbles
-- **HA theme-aware** — automatically adapts to any light or dark theme
 - **Header** with input voltage, current, power, total charging current, beep toggle
 - **Per-slot details**: voltage, current, live charge timer, battery type, mAh/Wh
 - **Status animations**: green glow (charging), blue (done), red pulse (error)
-- **Click any slot** to open the HA more-info dialog
+
+### Adapter layout (MASS2)
+- **Power gauge ring** showing total W of device maximum, plus active-port count and load %
+- **8-port grid** — 6× USB-C and 2× USB-A tiles, each with watts, V/A, protocol badge (PD/FAST) and load bar
+- **Sound popover** in the header — click the speaker icon to pick Mute / Low / Med / High
+- **Rename-aware**: port labels follow `name_by_user` when you rename a sub-device in the HA UI ("USB-A1" → "Toothbrush")
+- **Pulse-charging safe**: the tile state follows the integration's phantom-load filter, so actively charging devices (e.g. a NiMH charger on USB-C) don't flip between active/off
+
+### Both
+- **Device-based setup** — select your ISDT device, no entity prefix needed
+- **Auto-discovery** of all entities via device identifiers and translation keys
+- **HA theme-aware** — automatically adapts to any light or dark theme
+- **Click any tile** to open the HA more-info dialog
 
 ## Installation
 

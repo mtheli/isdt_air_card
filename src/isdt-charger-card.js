@@ -1,14 +1,24 @@
 /**
- * ISDT Charger Card v0.2.0 – Device-based, Battery Style, HA Theme-Aware
+ * ISDT Air Card – Device-based, HA Theme-Aware
  * Custom Lovelace Card for Home Assistant
  *
  * Selects a device from the isdt_air_ble integration and dynamically
  * discovers all entities via translation_key and sub-device mapping.
+ * Supports both chargers (C4 Air etc.) and adapters (MASS2 etc.).
  */
 
 import { t } from './translations.js';
 
-export const CARD_VERSION = "0.4.1";
+export const CARD_VERSION = "0.5.0";
+
+// Adapter total power limit by model (device-rated, not sum of port maxes).
+const ADAPTER_TOTAL_MAX = {
+  "MASS2": 200,
+};
+
+// MASS2 per-port limits (for mini bar showing port load %).
+const MASS2_USBC_MAX = 65;
+const MASS2_USBA_MAX = 12;
 
 export class ISDTChargerCard extends HTMLElement {
   constructor() {
@@ -66,7 +76,12 @@ export class ISDTChargerCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (this._config?.device_id && !this._entities) {
+    // Rebuild the entity map on every hass update so renames from the
+    // HA device registry propagate into the card without a reload.
+    // The work is O(n) over the entity registry (once per tick) and
+    // the subsequent _render() still falls back to partial updates
+    // whenever the structural fingerprint is unchanged.
+    if (this._config?.device_id) {
       this._entities = this._findEntities(hass, this._config.device_id);
     }
     this._render();
@@ -74,7 +89,26 @@ export class ISDTChargerCard extends HTMLElement {
 
   /* ── Entity discovery ───────────────────────────────── */
 
+  _getDeviceType(hass, deviceId) {
+    const dev = hass?.devices?.[deviceId];
+    const model = (dev?.model || "").toUpperCase();
+    if (model.includes("MASS2")) return "adapter";
+    return "charger";
+  }
+
   _findEntities(hass, deviceId) {
+    const type = this._getDeviceType(hass, deviceId);
+    if (type === "adapter") {
+      const entities = this._findAdapterEntities(hass, deviceId);
+      entities.type = "adapter";
+      return entities;
+    }
+    const entities = this._findChargerEntities(hass, deviceId);
+    entities.type = "charger";
+    return entities;
+  }
+
+  _findChargerEntities(hass, deviceId) {
     const main = {
       input_voltage: null,
       input_current: null,
@@ -151,6 +185,115 @@ export class ISDTChargerCard extends HTMLElement {
     return { main, slots };
   }
 
+  _findAdapterEntities(hass, deviceId) {
+    const main = {
+      total_power: null,
+      connected: null,
+      beep: null,
+      volume: null,
+    };
+    const ports = {};
+
+    // Discover port sub-devices via `device.identifiers`, which the
+    // integration sets to `[[DOMAIN, "{mac}_port{N}"]]`. Identifiers
+    // are stable against renames and language changes — unlike the
+    // device name which the user can customise and which isn't even
+    // exposed in every HA version the same way.
+    // (entity.unique_id is NOT in the frontend `hass.entities` map,
+    //  so we cannot use it here.)
+    const portDeviceMap = {}; // { subDeviceId: portNumber }
+    for (const [devId, device] of Object.entries(hass.devices || {})) {
+      if (device.via_device_id !== deviceId) continue;
+      for (const ident of device.identifiers || []) {
+        // `identifiers` comes through as an array of [domain, id] pairs.
+        const id = Array.isArray(ident) ? ident[1] : "";
+        const m = id.match(/_port(\d+)$/);
+        if (!m) continue;
+        const portNum = parseInt(m[1]);
+        if (portNum < 1 || portNum > 8) continue;
+        portDeviceMap[devId] = portNum;
+        if (!ports[portNum]) ports[portNum] = {};
+        break;
+      }
+    }
+
+    // Initialise default kind/label for every port slot so the grid
+    // always renders 8 tiles (even when some sub-devices are missing).
+    for (let n = 1; n <= 8; n++) {
+      if (!ports[n]) ports[n] = {};
+      if (!ports[n].kind) ports[n].kind = n <= 6 ? "C" : "A";
+      if (!ports[n].label) {
+        ports[n].label = n <= 6 ? `C${n}` : `A${n - 6}`;
+      }
+    }
+
+    // Pull user-customised display names from the device registry.
+    // `name_by_user` is only set when the user explicitly renamed the
+    // sub-device in the HA UI — otherwise we keep our short default
+    // label ("C1" / "A1") instead of the verbose "ISDT MASS2 USB-C1".
+    for (const [devId, n] of Object.entries(portDeviceMap)) {
+      const device = hass.devices?.[devId];
+      const custom = device?.name_by_user;
+      if (custom) ports[n].label = custom;
+    }
+
+    // Map entities to main-device slots and per-port fields.
+    // port_status lives on the MAIN device (not the sub-device) and
+    // has no unique_id in the frontend registry, so we differentiate
+    // the 8 instances by parsing their entity_id.
+    //
+    // Two slug formats exist in the wild:
+    //   1. Current (from MASS2_PORT_LABELS placeholder): the slug
+    //      contains `_usb_c3_status` / `_usb_a1_status`.
+    //   2. Legacy (from the `f"Port {n}"` fallback label used in
+    //      earlier versions): the slug contains `_port_3_status`.
+    // HA never rewrites entity_ids once created, so existing users
+    // may still have the legacy form. Support both.
+    for (const [entityId, entity] of Object.entries(hass.entities || {})) {
+      const tk = entity.translation_key;
+
+      if (entity.device_id === deviceId) {
+        // Main device entities
+        switch (tk) {
+          case "total_power": main.total_power = entityId; break;
+          case "connected":   main.connected   = entityId; break;
+          case "beep":        main.beep        = entityId; break;
+          case "volume":      main.volume      = entityId; break;
+          case "port_status": {
+            let n = null;
+            // New slug: `..._usb_[ca]<N>_status`
+            let m = entityId.match(/_usb_([ca])(\d+)_status$/i);
+            if (m) {
+              const kind = m[1].toLowerCase();
+              const idx = parseInt(m[2]);
+              n = kind === "c" ? idx : 6 + idx;
+            } else {
+              // Legacy slug: `..._port_<N>_status` (or `_port<N>_status`)
+              m = entityId.match(/_port_?(\d+)_status$/i);
+              if (m) n = parseInt(m[1]);
+            }
+            if (n !== null && n >= 1 && n <= 8) {
+              if (!ports[n]) ports[n] = {};
+              ports[n].status = entityId;
+            }
+            break;
+          }
+        }
+      } else if (entity.device_id && entity.device_id in portDeviceMap) {
+        const n = portDeviceMap[entity.device_id];
+        switch (tk) {
+          case "port_voltage":  ports[n].voltage  = entityId; break;
+          case "port_current":  ports[n].current  = entityId; break;
+          case "port_power":    ports[n].power    = entityId; break;
+          case "port_protocol": ports[n].protocol = entityId; break;
+          case "port_active":   ports[n].active   = entityId; break;
+        }
+      }
+    }
+
+    return { main, ports };
+  }
+
   _t(key) { return t(this._hass, key); }
 
   /* ── Entity state helpers ───────────────────────────── */
@@ -187,21 +330,30 @@ export class ISDTChargerCard extends HTMLElement {
       return;
     }
 
-    // Compute structural key: visible slots + their statuses
-    const use56 = [5, 6].some((n) => {
-      const s = this._entities.slots[n];
-      return s && this._st(s.status, "empty") !== "empty";
-    });
-    const visibleSlots = use56 ? [5, 6] : [1, 2, 3, 4];
-    const slotKey = visibleSlots.map((n) => {
-      const s = this._entities.slots[n];
-      const status = this._st(s?.status, "empty");
-      return `${n}:${status}`;
-    }).join("|");
+    // Compute structural key so we re-render the full card only when
+    // the visible layout changes (number of slots/ports, type switch,
+    // or a port was renamed in the HA device registry).
+    let structKey;
+    if (this._entities.type === "adapter") {
+      structKey = "adapter:" + [1, 2, 3, 4, 5, 6, 7, 8]
+        .map((n) => this._entities.ports[n]?.label || "")
+        .join("|");
+    } else {
+      const use56 = [5, 6].some((n) => {
+        const s = this._entities.slots[n];
+        return s && this._st(s.status, "empty") !== "empty";
+      });
+      const visibleSlots = use56 ? [5, 6] : [1, 2, 3, 4];
+      structKey = "charger:" + visibleSlots.map((n) => {
+        const s = this._entities.slots[n];
+        const status = this._st(s?.status, "empty");
+        return `${n}:${status}`;
+      }).join("|");
+    }
 
-    const needsFull = this._lastSlotKey !== slotKey
+    const needsFull = this._lastSlotKey !== structKey
       || !this.shadowRoot.querySelector(".isdt-card");
-    this._lastSlotKey = slotKey;
+    this._lastSlotKey = structKey;
 
     if (needsFull) {
       const root = this.shadowRoot;
@@ -221,6 +373,11 @@ export class ISDTChargerCard extends HTMLElement {
   }
 
   _html() {
+    if (this._entities.type === "adapter") return this._adapterHTML();
+    return this._chargerHTML();
+  }
+
+  _chargerHTML() {
     const { show_header } = this._config;
     const device = this._hass.devices[this._config.device_id];
     const customTitle = this._config.title;
@@ -243,6 +400,11 @@ export class ISDTChargerCard extends HTMLElement {
   }
 
   _updateDynamic() {
+    if (this._entities?.type === "adapter") return this._adapterUpdateDynamic();
+    return this._chargerUpdateDynamic();
+  }
+
+  _chargerUpdateDynamic() {
     const root = this.shadowRoot;
     if (!root) return;
 
@@ -339,6 +501,287 @@ export class ISDTChargerCard extends HTMLElement {
   _setField(root, name, html) {
     const el = root.querySelector(`[data-field="${name}"]`);
     if (el) el.innerHTML = html;
+  }
+
+  /* ── Adapter rendering (MASS2 etc.) ─────────────────── */
+
+  _portMax(port) {
+    return port?.kind === "A" ? MASS2_USBA_MAX : MASS2_USBC_MAX;
+  }
+
+  _adapterTotalMax() {
+    const device = this._hass.devices[this._config.device_id];
+    const model = (device?.model || "").replace(/^ISDT\s+/i, "").trim();
+    return ADAPTER_TOTAL_MAX[model] || null;
+  }
+
+  _portState(port) {
+    // Primary source: the binary_sensor `port_active` on the port
+    // sub-device. It's mapped via device.identifiers so its lookup is
+    // fully reliable, and it follows the coordinator's phantom-filter
+    // decisions (same underlying `ch["status"]` override).
+    const a = this._st(port?.active, null);
+    if (a === "on") return "active";
+    if (a === "off") {
+      // Port not actively delivering power, but we can still
+      // distinguish "nothing plugged in" from "plugged but idle".
+      const pwr = this._num(port?.power, 0);
+      return pwr > 0.05 ? "idle" : "off";
+    }
+
+    // Fallback 1: the main-device `port_status` sensor (three-state
+    // off/idle/active). Used if the binary_sensor is unavailable.
+    const s = this._st(port?.status, null);
+    if (s === "active" || s === "idle" || s === "off") return s;
+
+    // Fallback 2: purely power-based (last resort, e.g. right after a
+    // reload before any sensors have reported).
+    const p = this._num(port?.power, 0);
+    return p > 0.05 ? "active" : "off";
+  }
+
+  _protoBadge(port) {
+    const proto = this._st(port?.protocol, "none");
+    if (proto === "pd") return { label: "PD", cls: "pd" };
+    if (proto === "fast_charge") return { label: "FAST", cls: "fast" };
+    return { label: "OFF", cls: "off" };
+  }
+
+  _adapterHTML() {
+    const device = this._hass.devices[this._config.device_id];
+    const customTitle = this._config.title;
+    const rawModel = (device?.model || device?.name || "ISDT Adapter").replace(/^ISDT\s+/i, "");
+    const model = rawModel || "Adapter";
+    const title = customTitle || "ISDT";
+
+    let h = '<div class="isdt-card adapter-card">';
+    if (this._config.show_header !== false) h += this._adapterHeaderHTML(title, model);
+    h += `<div class="section-label">${this._t("section_usbc")}</div>`;
+    h += '<div class="port-grid usb-c">';
+    for (let n = 1; n <= 6; n++) h += this._portHTML(n);
+    h += "</div>";
+    h += `<div class="section-label">${this._t("section_usba")}</div>`;
+    h += '<div class="port-grid usb-a">';
+    for (let n = 7; n <= 8; n++) h += this._portHTML(n);
+    h += "</div>";
+    h += "</div>";
+    return h;
+  }
+
+  _adapterHeaderHTML(_title, model) {
+    const { main } = this._entities;
+    const customTitle = this._config.title;
+    const showModel = this._config.show_model !== false;
+    const connected = this._st(main.connected, "off") === "on";
+    const totalW = this._num(main.total_power, 0);
+    const totalMax = this._adapterTotalMax();
+    const pct = totalMax ? Math.min(100, (totalW / totalMax) * 100) : 0;
+    const R = 36;
+    const C = 2 * Math.PI * R;
+    const dashOffset = C - (pct / 100) * C;
+
+    const volume = this._st(main.volume, "medium"); // low | medium | high
+    const beepOn = this._st(main.beep, "off") === "on";
+    const soundState = beepOn ? volume : "mute"; // mute | low | medium | high
+    const soundIcon = this._soundIcon(soundState);
+
+    const popoverOpts = [
+      { id: "mute",   icon: "mdi:volume-off"   },
+      { id: "low",    icon: "mdi:volume-low"   },
+      { id: "medium", icon: "mdi:volume-medium" },
+      { id: "high",   icon: "mdi:volume-high"  },
+    ].map((o) => `
+      <button class="sound-opt ${soundState === o.id ? "active" : ""}"
+              data-opt="${o.id}"
+              title="${this._t("sound_" + o.id)}">
+        <ha-icon icon="${o.icon}"></ha-icon>
+      </button>`).join("");
+
+    return `
+      <div class="header adapter-header">
+        <div class="header-top">
+          <div class="header-title">
+            ${customTitle
+              ? `<span class="title-text">${customTitle}</span>`
+              : `<span class="isdt-logo">ISDT</span>`}
+            ${showModel && model ? `<span class="model-name">${model}</span>` : ""}
+          </div>
+          <div class="header-icons">
+            <svg class="conn-icon ${connected ? "" : "disconnected"}" viewBox="0 0 24 24" fill="currentColor" stroke="none"
+                 data-entity="${main.connected || ""}"
+                 title="${this._t(connected ? "tooltip_connected" : "tooltip_disconnected")}">
+              <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+            </svg>
+            <div class="sound-wrap">
+              <button class="sound-btn ${soundState !== "mute" ? "on" : ""}"
+                      data-beep="${main.beep || ""}"
+                      data-volume="${main.volume || ""}"
+                      title="${this._t("sound_" + soundState)}">
+                <ha-icon class="sound-btn-icon" icon="${soundIcon}"></ha-icon>
+              </button>
+              <div class="sound-popover">${popoverOpts}</div>
+            </div>
+            <svg class="more-info-btn" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <circle cx="12" cy="5" r="1.5"/>
+              <circle cx="12" cy="12" r="1.5"/>
+              <circle cx="12" cy="19" r="1.5"/>
+            </svg>
+          </div>
+        </div>
+        <div class="power-gauge" data-entity="${main.total_power || ""}">
+          <div class="gauge-ring">
+            <svg class="ring" viewBox="0 0 84 84">
+              <circle class="bg-ring" cx="42" cy="42" r="${R}"/>
+              <circle class="fg-ring" cx="42" cy="42" r="${R}" stroke-dasharray="${C}" stroke-dashoffset="${dashOffset}"/>
+            </svg>
+            <div class="gauge-center">
+              <span class="gauge-watts" data-field="total-w">${totalW.toFixed(0)}<small>W</small></span>
+              ${totalMax ? `<span class="gauge-unit">${this._t("gauge_of")} ${totalMax}W</span>` : ""}
+            </div>
+          </div>
+          <div class="power-details">
+            <div class="power-row">
+              <span class="lbl">${this._t("active_ports")}</span>
+              <span class="val" data-field="active-count">–</span>
+            </div>
+            <div class="power-row">
+              <span class="lbl">${this._t("load")}</span>
+              <span class="val" data-field="load-pct">${totalMax ? `${pct.toFixed(0)} %` : "–"}</span>
+            </div>
+            <div class="power-bar"><div class="power-bar-fill" data-field="load-bar" style="width:${pct}%"></div></div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  _soundIcon(state) {
+    return {
+      mute:   "mdi:volume-off",
+      low:    "mdi:volume-low",
+      medium: "mdi:volume-medium",
+      high:   "mdi:volume-high",
+    }[state] || "mdi:volume-off";
+  }
+
+  _portHTML(n) {
+    const port = this._entities.ports[n];
+    const state = this._portState(port);
+    const w = this._num(port?.power, 0);
+    const v = this._num(port?.voltage, 0);
+    const a = this._num(port?.current, 0);
+    const isActive = state === "active";
+    const portMax = this._portMax(port);
+    const barPct = isActive ? Math.min(100, (w / portMax) * 100) : 0;
+    const kind = port?.kind || (n <= 6 ? "C" : "A");
+    const iconName = kind === "C" ? "mdi:usb-c-port" : "mdi:usb-port";
+
+    // Protocol badge: only for USB-C (USB-A has no PD negotiation, so
+    // there's nothing meaningful to show).
+    let badgeHTML = "";
+    if (kind === "C") {
+      const badge = this._protoBadge(port);
+      badgeHTML = `<span class="proto-badge proto-${badge.cls}" data-entity="${port?.protocol || ""}">${badge.label}</span>`;
+    }
+
+    return `
+      <div class="port ${state}" data-port="${n}">
+        <div class="port-head">
+          <div class="port-num">
+            <ha-icon class="port-icon" icon="${iconName}"></ha-icon>
+            <span>${port?.label || ""}</span>
+          </div>
+          ${badgeHTML}
+        </div>
+        <div class="port-watts" data-entity="${port?.power || ""}">${w.toFixed(1)}<small>W</small></div>
+        <div class="port-vi">
+          <span data-entity="${port?.voltage || ""}">${v.toFixed(2)} V</span>
+          <span data-entity="${port?.current || ""}">${a.toFixed(2)} A</span>
+        </div>
+        <div class="port-bar"><div class="port-bar-fill" style="width:${barPct}%"></div></div>
+      </div>`;
+  }
+
+  _adapterUpdateDynamic() {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const { main, ports } = this._entities;
+
+    // Header: total gauge + volume selector + beep + connection
+    const totalW = this._num(main.total_power, 0);
+    const totalMax = this._adapterTotalMax();
+    const pct = totalMax ? Math.min(100, (totalW / totalMax) * 100) : 0;
+    const R = 36;
+    const C = 2 * Math.PI * R;
+
+    this._setField(root, "total-w", `${totalW.toFixed(0)}<small>W</small>`);
+    this._setField(root, "load-pct", totalMax ? `${pct.toFixed(0)} %` : "–");
+    const loadBar = root.querySelector('[data-field="load-bar"]');
+    if (loadBar) loadBar.style.width = `${pct}%`;
+    const fg = root.querySelector(".fg-ring");
+    if (fg) fg.setAttribute("stroke-dashoffset", `${C - (pct / 100) * C}`);
+
+    // Connection icon
+    const connected = this._st(main.connected, "off") === "on";
+    const connIcon = root.querySelector(".conn-icon");
+    if (connIcon) {
+      connIcon.classList.toggle("disconnected", !connected);
+      connIcon.setAttribute("title", this._t(connected ? "tooltip_connected" : "tooltip_disconnected"));
+    }
+
+    // Sound icon (combined mute + volume) — header button + popover
+    const beepOn = this._st(main.beep, "off") === "on";
+    const volume = this._st(main.volume, "medium");
+    const soundState = beepOn ? volume : "mute";
+    const soundIcon = this._soundIcon(soundState);
+
+    const soundBtn = root.querySelector(".sound-btn");
+    if (soundBtn) {
+      soundBtn.classList.toggle("on", soundState !== "mute");
+      soundBtn.setAttribute("title", this._t("sound_" + soundState));
+      const iconEl = soundBtn.querySelector(".sound-btn-icon");
+      if (iconEl) iconEl.setAttribute("icon", soundIcon);
+    }
+    root.querySelectorAll(".sound-opt").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.opt === soundState);
+    });
+
+    // Ports
+    let activeCount = 0;
+    for (let n = 1; n <= 8; n++) {
+      const portEl = root.querySelector(`[data-port="${n}"]`);
+      if (!portEl) continue;
+      const port = ports[n];
+      const state = this._portState(port);
+      if (state === "active") activeCount++;
+      portEl.className = `port ${state}`;
+
+      const w = this._num(port?.power, 0);
+      const v = this._num(port?.voltage, 0);
+      const a = this._num(port?.current, 0);
+
+      const wEl = portEl.querySelector(".port-watts");
+      if (wEl) wEl.innerHTML = `${w.toFixed(1)}<small>W</small>`;
+      const viSpans = portEl.querySelectorAll(".port-vi span");
+      if (viSpans.length >= 2) {
+        viSpans[0].textContent = `${v.toFixed(2)} V`;
+        viSpans[1].textContent = `${a.toFixed(2)} A`;
+      }
+
+      // Protocol badge only exists for USB-C ports (see _portHTML).
+      const badgeEl = portEl.querySelector(".proto-badge");
+      if (badgeEl) {
+        const badge = this._protoBadge(port);
+        badgeEl.className = `proto-badge proto-${badge.cls}`;
+        badgeEl.textContent = badge.label;
+      }
+
+      const isActive = state === "active";
+      const portMax = this._portMax(port);
+      const barPct = isActive ? Math.min(100, (w / portMax) * 100) : 0;
+      const barFill = portEl.querySelector(".port-bar-fill");
+      if (barFill) barFill.style.width = `${barPct}%`;
+    }
+    this._setField(root, "active-count", `${activeCount} / 8`);
   }
 
   _navigateToDevice() {
@@ -515,6 +958,7 @@ export class ISDTChargerCard extends HTMLElement {
   /* ── Events ─────────────────────────────────────────── */
 
   _bind(card) {
+    // Charger beep button (binary toggle on the C4 Air header).
     const beepBtn = card.querySelector(".beep-btn");
     if (beepBtn?.dataset.entity) {
       beepBtn.addEventListener("click", (e) => {
@@ -533,8 +977,50 @@ export class ISDTChargerCard extends HTMLElement {
       });
     }
 
+    // Adapter sound control (combined mute + volume popover).
+    const soundBtn = card.querySelector(".sound-btn");
+    const soundWrap = card.querySelector(".sound-wrap");
+    if (soundBtn && soundWrap) {
+      soundBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        soundWrap.classList.toggle("open");
+      });
+      // Close on any click outside the wrap (within the card).
+      card.addEventListener("click", (e) => {
+        if (!soundWrap.contains(e.target)) {
+          soundWrap.classList.remove("open");
+        }
+      });
+    }
+    card.querySelectorAll(".sound-opt").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const opt = btn.dataset.opt;
+        const beepEntity = soundBtn?.dataset.beep;
+        const volumeEntity = soundBtn?.dataset.volume;
+        if (opt === "mute") {
+          if (beepEntity) {
+            this._hass.callService("switch", "turn_off", { entity_id: beepEntity });
+          }
+        } else {
+          // Unmute first (if currently muted) then set volume.
+          if (beepEntity) {
+            this._hass.callService("switch", "turn_on", { entity_id: beepEntity });
+          }
+          if (volumeEntity) {
+            this._hass.callService("select", "select_option", {
+              entity_id: volumeEntity,
+              option: opt,
+            });
+          }
+        }
+        soundWrap?.classList.remove("open");
+      });
+    });
+
     card.querySelectorAll("[data-entity]").forEach((el) => {
       if (!el.dataset.entity) return;
+      if (el.classList.contains("sound-btn")) return; // handled above
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         const ev = new Event("hass-more-info", { bubbles: true, composed: true });
@@ -822,6 +1308,224 @@ export class ISDTChargerCard extends HTMLElement {
       font-size: 14px;
     }
 
+    /* ════════ Adapter (MASS2 etc.) ════════ */
+    .adapter-card { padding: 0; }
+
+    .adapter-header .power-gauge {
+      display: flex; align-items: center; gap: 16px;
+      padding: 14px 16px; margin-bottom: 12px;
+      background: var(--secondary-background-color, rgba(0,0,0,0.04));
+      border-radius: 14px; cursor: pointer;
+    }
+    .gauge-ring { position: relative; width: 86px; height: 86px; flex-shrink: 0; }
+    .gauge-ring svg.ring { width: 100%; height: 100%; transform: rotate(-90deg); }
+    .gauge-ring .bg-ring {
+      fill: none; stroke: var(--divider-color, #e0e0e0); stroke-width: 6;
+    }
+    .gauge-ring .fg-ring {
+      fill: none; stroke: #4caf50; stroke-width: 6; stroke-linecap: round;
+      transition: stroke-dashoffset 1s ease;
+      filter: drop-shadow(0 0 6px rgba(76,175,80,0.35));
+    }
+    .gauge-center {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+    }
+    .gauge-watts {
+      font-family: ui-monospace, 'Roboto Mono', monospace;
+      font-size: 22px; font-weight: 700; line-height: 1;
+      font-variant-numeric: tabular-nums;
+      color: var(--primary-text-color);
+    }
+    .gauge-watts small {
+      font-size: 11px; font-weight: 500;
+      color: var(--secondary-text-color); margin-left: 1px;
+    }
+    .gauge-unit {
+      font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--secondary-text-color); margin-top: 4px; font-weight: 600;
+    }
+    .power-details { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+    .power-row { display: flex; justify-content: space-between; align-items: center; }
+    .power-row .lbl {
+      color: var(--secondary-text-color);
+      text-transform: uppercase; letter-spacing: 0.8px;
+      font-size: 9.5px; font-weight: 600;
+    }
+    .power-row .val {
+      font-family: ui-monospace, 'Roboto Mono', monospace;
+      font-variant-numeric: tabular-nums;
+      font-weight: 600; font-size: 13px;
+      color: var(--primary-text-color);
+    }
+    .power-bar {
+      height: 5px; border-radius: 3px;
+      background: var(--divider-color, #e0e0e0); overflow: hidden;
+    }
+    .power-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #2e7d32, #4caf50);
+      border-radius: 3px;
+      transition: width 1s ease;
+    }
+
+    /* Combined mute + volume control: header icon shows current state,
+       click reveals a small popover with the 4 levels (mute/low/med/high). */
+    .sound-wrap { position: relative; display: inline-flex; }
+    .sound-btn {
+      background: none; border: none; padding: 4px; cursor: pointer;
+      color: var(--secondary-text-color); display: flex; align-items: center;
+      opacity: 0.5; transition: opacity 0.2s, color 0.2s;
+    }
+    .sound-btn:hover { opacity: 1; }
+    .sound-btn.on {
+      color: var(--primary-color, #03a9f4);
+      opacity: 0.85;
+    }
+    .sound-btn.on:hover { opacity: 1; }
+    .sound-btn ha-icon { --mdc-icon-size: 20px; }
+    .sound-popover {
+      position: absolute; top: calc(100% + 6px); right: 0;
+      display: none;
+      flex-direction: row; gap: 2px; padding: 4px;
+      background: var(--ha-card-background, var(--card-background-color, #fff));
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 10px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      z-index: 10;
+    }
+    .sound-wrap.open .sound-popover { display: flex; }
+    .sound-opt {
+      background: transparent; border: none; cursor: pointer;
+      padding: 6px 8px; border-radius: 6px;
+      color: var(--secondary-text-color);
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+    .sound-opt ha-icon { --mdc-icon-size: 18px; }
+    .sound-opt:hover { background: var(--divider-color); color: var(--primary-text-color); }
+    .sound-opt.active {
+      background: var(--primary-color, #03a9f4);
+      color: #fff;
+    }
+    .sound-opt.active ha-icon { color: #fff; }
+
+    .section-label {
+      font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px;
+      font-weight: 700; color: var(--secondary-text-color);
+      margin: 14px 14px 8px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-label::before { content: ''; width: 12px; height: 1px; background: var(--divider-color); }
+    .section-label::after  { content: ''; flex: 1; height: 1px; background: var(--divider-color); }
+
+    .port-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 8px; padding: 0 12px;
+    }
+    .port-grid.usb-a {
+      grid-template-columns: repeat(2, 1fr);
+      padding-bottom: 14px;
+    }
+
+    .port {
+      background: var(--secondary-background-color, rgba(0,0,0,0.04));
+      border: 1.5px solid var(--divider-color, #e0e0e0);
+      border-radius: 12px;
+      padding: 11px 10px 10px;
+      display: flex; flex-direction: column;
+      cursor: pointer;
+      position: relative; overflow: hidden;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+    .port:hover { transform: translateY(-1px); }
+    .port.active {
+      border-color: rgba(76,175,80,0.5);
+      box-shadow: 0 0 14px rgba(76,175,80,0.1);
+    }
+    .port.active::before {
+      content: ''; position: absolute;
+      top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, #4caf50, transparent);
+      animation: port-flow 2.5s ease-in-out infinite;
+    }
+    @keyframes port-flow {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+    .port.off, .port.idle { opacity: 0.6; }
+    .port.off .port-vi { visibility: hidden; }
+    .port.off .port-watts { color: var(--disabled-text-color, #bdbdbd); }
+    .port.idle .port-watts { color: var(--secondary-text-color); }
+
+    .port-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 6px; min-width: 0;
+      margin-bottom: 7px;
+    }
+    .port-num {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 10.5px; font-weight: 700;
+      color: var(--secondary-text-color);
+      min-width: 0; flex: 1;
+    }
+    .port-num span {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      min-width: 0;
+    }
+    .port-num .port-icon { --mdc-icon-size: 15px; color: var(--secondary-text-color); flex-shrink: 0; }
+    .port.active .port-num,
+    .port.active .port-num .port-icon { color: #4caf50; }
+
+    .proto-badge {
+      font-size: 7.5px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.6px;
+      padding: 2px 5px; border-radius: 3px;
+      font-family: ui-monospace, 'Roboto Mono', monospace;
+    }
+    .proto-pd   { background: rgba(255,152,0,0.15);  color: #ff9800; }
+    .proto-fast { background: rgba(171,71,188,0.15); color: #ab47bc; }
+    .proto-off  { background: transparent;           color: var(--disabled-text-color); }
+
+    .port-watts {
+      font-family: ui-monospace, 'Roboto Mono', monospace;
+      font-variant-numeric: tabular-nums;
+      font-size: 22px; font-weight: 700;
+      color: var(--primary-text-color);
+      line-height: 1; margin: 2px 0 1px;
+    }
+    .port-watts small {
+      font-size: 11px; font-weight: 500;
+      color: var(--secondary-text-color); margin-left: 2px;
+    }
+
+    .port-vi {
+      display: flex; gap: 8px;
+      font-family: ui-monospace, 'Roboto Mono', monospace;
+      font-variant-numeric: tabular-nums;
+      font-size: 10px;
+      color: var(--secondary-text-color);
+      margin-bottom: 6px;
+    }
+    .port-vi span::before {
+      content: ''; display: inline-block;
+      width: 3px; height: 3px; border-radius: 50%;
+      background: currentColor; vertical-align: middle;
+      margin-right: 4px; opacity: 0.5;
+    }
+
+    .port-bar {
+      height: 3px; border-radius: 2px;
+      background: var(--divider-color, #e0e0e0);
+      overflow: hidden; margin-top: auto;
+    }
+    .port-bar-fill {
+      height: 100%; background: #4caf50; border-radius: 2px;
+      transition: width 0.8s ease;
+    }
+    .port.off .port-bar-fill { background: var(--disabled-text-color); }
+
     /* ════════ Narrow card ════════ */
     @container (max-width: 350px) {
       .battery-info { display: none; }
@@ -829,6 +1533,13 @@ export class ISDTChargerCard extends HTMLElement {
       .stat-value { font-size: 13px; }
       .stat-label { font-size: 8px; }
       .battery-grid { gap: 8px; padding: 8px; }
+      .port-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 0 8px; }
+      .port-watts { font-size: 18px; }
+      .gauge-ring { width: 72px; height: 72px; }
+      .gauge-watts { font-size: 18px; }
+      .power-row .val { font-size: 11px; }
+      .sound-opt { padding: 5px 6px; }
+      .sound-opt ha-icon { --mdc-icon-size: 16px; }
     }
     `;
   }

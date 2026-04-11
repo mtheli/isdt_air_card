@@ -17,5 +17,18 @@
   "config_title": "Title (optional – defaults to device name)",
   "config_show_model": "Show model as subtitle",
   "config_show_header": "Show header with input stats",
-  "error_no_device": "Please select a device"
+  "error_no_device": "Please select a device",
+  "section_usbc": "USB-C",
+  "section_usba": "USB-A",
+  "gauge_of": "of",
+  "active_ports": "Active Ports",
+  "load": "Load",
+  "volume": "Volume",
+  "vol_low": "Low",
+  "vol_medium": "Med",
+  "vol_high": "High",
+  "sound_mute": "Muted",
+  "sound_low": "Low volume",
+  "sound_medium": "Medium volume",
+  "sound_high": "High volume"
 }

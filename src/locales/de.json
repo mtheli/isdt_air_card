@@ -17,5 +17,18 @@
   "config_title": "Titel (optional – Standard ist Gerätename)",
   "config_show_model": "Modell als Untertitel anzeigen",
   "config_show_header": "Header mit Eingangswerten anzeigen",
-  "error_no_device": "Bitte ein Gerät auswählen"
+  "error_no_device": "Bitte ein Gerät auswählen",
+  "section_usbc": "USB-C",
+  "section_usba": "USB-A",
+  "gauge_of": "von",
+  "active_ports": "Aktive Ports",
+  "load": "Auslastung",
+  "volume": "Lautstärke",
+  "vol_low": "Leise",
+  "vol_medium": "Mittel",
+  "vol_high": "Laut",
+  "sound_mute": "Stumm",
+  "sound_low": "Leise",
+  "sound_medium": "Mittel",
+  "sound_high": "Laut"
 }
