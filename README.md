@@ -8,7 +8,7 @@ Custom Lovelace card for [ISDT Air BLE](https://github.com/mtheli/isdt_air_ble) 
 
 Two layouts, picked automatically from the device model:
 
-### Charger (C4 Air, NP2 Air, …)
+### Charger (C4 Air, A8 Air, K2 Air, Air 8, NP2 Air, …)
 
 ![ISDT Charger Layout](images/screenshot.png)
 

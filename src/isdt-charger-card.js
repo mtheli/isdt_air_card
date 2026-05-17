@@ -9,7 +9,7 @@
 
 import { t } from './translations.js';
 
-export const CARD_VERSION = "0.6.0";
+export const CARD_VERSION = "0.6.1";
 
 // Adapter total power limit by model (device-rated, not sum of port maxes).
 const ADAPTER_TOTAL_MAX = {
@@ -375,15 +375,18 @@ export class ISDTChargerCard extends HTMLElement {
 
   _visibleSlots() {
     const allSlots = Object.keys(this._entities.slots).map(Number).sort((a, b) => a - b);
-    // 6-slot chargers (C4 Air): show slots 5+6 if active, else 1–4
-    if (allSlots.length <= 6) {
+    // 6-slot chargers (C4 Air): show slots 5+6 only if active, else 1–4.
+    // The C4 Air physically exposes either AA/AAA in 1–4 or larger cells
+    // in 5–6 — never all six at once.
+    if (allSlots.length === 6) {
       const use56 = [5, 6].some((n) => {
         const s = this._entities.slots[n];
         return s && this._st(s.status, "empty") !== "empty";
       });
       return use56 ? [5, 6] : [1, 2, 3, 4];
     }
-    // 8+ slot chargers (A8 Air): show all slots
+    // Every other charger: show exactly the slots the integration created.
+    // Air 8 → 1, K2 Air → 2, A4 Air → 4, A8 Air → 8, …
     return allSlots;
   }
 

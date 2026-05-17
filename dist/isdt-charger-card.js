@@ -28,7 +28,7 @@ function $d8078e452c66bdbe$export$625550452a3fa3ec(hass, key) {
 }
 
 
-const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.6.0";
+const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.6.1";
 // Adapter total power limit by model (device-rated, not sum of port maxes).
 const $9a3262f48b2f355e$var$ADAPTER_TOTAL_MAX = {
     "MASS2": 200
@@ -413,8 +413,10 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
     }
     _visibleSlots() {
         const allSlots = Object.keys(this._entities.slots).map(Number).sort((a, b)=>a - b);
-        // 6-slot chargers (C4 Air): show slots 5+6 if active, else 1–4
-        if (allSlots.length <= 6) {
+        // 6-slot chargers (C4 Air): show slots 5+6 only if active, else 1–4.
+        // The C4 Air physically exposes either AA/AAA in 1–4 or larger cells
+        // in 5–6 — never all six at once.
+        if (allSlots.length === 6) {
             const use56 = [
                 5,
                 6
@@ -432,7 +434,8 @@ class $9a3262f48b2f355e$export$fda68d6dc0a4d865 extends HTMLElement {
                 4
             ];
         }
-        // 8+ slot chargers (A8 Air): show all slots
+        // Every other charger: show exactly the slots the integration created.
+        // Air 8 → 1, K2 Air → 2, A4 Air → 4, A8 Air → 8, …
         return allSlots;
     }
     _chargerHTML() {
