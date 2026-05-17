@@ -9,7 +9,7 @@
 
 import { t } from './translations.js';
 
-export const CARD_VERSION = "0.6.1";
+export const CARD_VERSION = "0.7.0";
 
 // Adapter total power limit by model (device-rated, not sum of port maxes).
 const ADAPTER_TOTAL_MAX = {
@@ -19,6 +19,16 @@ const ADAPTER_TOTAL_MAX = {
 // MASS2 per-port limits (for mini bar showing port load %).
 const MASS2_USBC_MAX = 65;
 const MASS2_USBA_MAX = 12;
+
+// LiPo balance chargers — render as full-width pack tiles with per-cell
+// V + IR chips rather than the AA-style slot grid used for round-cell
+// chargers. Stay in sync with BALANCE_CHARGER_MODELS in the integration's
+// custom_components/isdt_air_ble/const.py.
+const BALANCE_CHARGER_MODELS = new Set(["Air 8", "K2 Air"]);
+
+// Maximum number of cells the protocol can report per channel
+// (ElectricResp short variant carries 8 cellVoltageList slots).
+const MAX_CELLS_PER_CHANNEL = 16;
 
 export class ISDTChargerCard extends HTMLElement {
   constructor() {
@@ -91,8 +101,9 @@ export class ISDTChargerCard extends HTMLElement {
 
   _getDeviceType(hass, deviceId) {
     const dev = hass?.devices?.[deviceId];
-    const model = (dev?.model || "").toUpperCase();
-    if (model.includes("MASS2")) return "adapter";
+    const model = dev?.model || "";
+    if (model.toUpperCase().includes("MASS2")) return "adapter";
+    if (BALANCE_CHARGER_MODELS.has(model)) return "balance_charger";
     return "charger";
   }
 
@@ -101,6 +112,11 @@ export class ISDTChargerCard extends HTMLElement {
     if (type === "adapter") {
       const entities = this._findAdapterEntities(hass, deviceId);
       entities.type = "adapter";
+      return entities;
+    }
+    if (type === "balance_charger") {
+      const entities = this._findChargerEntities(hass, deviceId);
+      entities.type = "balance_charger";
       return entities;
     }
     const entities = this._findChargerEntities(hass, deviceId);
@@ -164,13 +180,25 @@ export class ISDTChargerCard extends HTMLElement {
         const slotNum = slotDeviceMap[entity.device_id];
         if (!slots[slotNum]) slots[slotNum] = {};
         switch (tk) {
-          case "output_voltage":   slots[slotNum].output_voltage = entityId; break;
-          case "charging_current": slots[slotNum].charging_current = entityId; break;
-          case "capacity":         slots[slotNum].capacity = entityId; break;
-          case "capacity_done":    slots[slotNum].capacity_done = entityId; break;
-          case "energy_done":      slots[slotNum].energy_done = entityId; break;
-          case "charge_time":      slots[slotNum].charge_time = entityId; break;
-          case "battery_type":     slots[slotNum].battery_type = entityId; break;
+          case "output_voltage":      slots[slotNum].output_voltage = entityId; break;
+          case "charging_current":    slots[slotNum].charging_current = entityId; break;
+          case "capacity":            slots[slotNum].capacity = entityId; break;
+          case "capacity_done":       slots[slotNum].capacity_done = entityId; break;
+          case "energy_done":         slots[slotNum].energy_done = entityId; break;
+          case "charge_time":         slots[slotNum].charge_time = entityId; break;
+          case "battery_type":        slots[slotNum].battery_type = entityId; break;
+          case "internal_resistance": slots[slotNum].primary_ir = entityId; break;
+        }
+        // Per-cell voltage sensors (translation_key "cell_1" .. "cell_16").
+        // Used for the balance-charger layout; the IR value lives on the
+        // same sensor as an extra attribute (since isdt_air_ble v0.9.2).
+        const cellMatch = tk?.match(/^cell_(\d+)$/);
+        if (cellMatch) {
+          const cellIdx = parseInt(cellMatch[1]) - 1;
+          if (cellIdx >= 0 && cellIdx < MAX_CELLS_PER_CHANNEL) {
+            slots[slotNum].cells ||= {};
+            slots[slotNum].cells[cellIdx] = entityId;
+          }
         }
         // Fallback: slot entities via device_class
         const slotState = hass.states[entityId];
@@ -338,6 +366,23 @@ export class ISDTChargerCard extends HTMLElement {
       structKey = "adapter:" + [1, 2, 3, 4, 5, 6, 7, 8]
         .map((n) => this._entities.ports[n]?.label || "")
         .join("|");
+    } else if (this._entities.type === "balance_charger") {
+      const slots = Object.keys(this._entities.slots).map(Number).sort((a, b) => a - b);
+      structKey = "balance:" + slots.map((n) => {
+        const s = this._entities.slots[n];
+        const status = this._st(s?.status, "empty");
+        // Count populated cells so a pack going from 6S to 8S forces a
+        // full re-render (the grid layout changes).
+        const cells = s?.cells || {};
+        let cellCount = 0;
+        for (let i = 0; i < MAX_CELLS_PER_CHANNEL; i++) {
+          const eid = cells[i];
+          if (!eid) continue;
+          const v = parseFloat(this._hass.states[eid]?.state);
+          if (!isNaN(v) && v > 0.1) cellCount++;
+        }
+        return `${n}:${status}:${cellCount}`;
+      }).join("|");
     } else {
       const visibleSlots = this._visibleSlots();
       structKey = "charger:" + visibleSlots.map((n) => {
@@ -370,7 +415,172 @@ export class ISDTChargerCard extends HTMLElement {
 
   _html() {
     if (this._entities.type === "adapter") return this._adapterHTML();
+    if (this._entities.type === "balance_charger") return this._balanceChargerHTML();
     return this._chargerHTML();
+  }
+
+  /* ────────────────────────────────────────────────────────────────
+     Balance-charger layout (Air 8, K2 Air)
+     One full-width pack tile per channel with per-cell V + IR chips.
+     ──────────────────────────────────────────────────────────────── */
+
+  _cellGridDimensions(cellCount) {
+    if (cellCount <= 1) return { rows: 1, cols: 1 };
+    if (cellCount <= 3) return { rows: 1, cols: cellCount };
+    if (cellCount === 4) return { rows: 2, cols: 2 };
+    if (cellCount <= 8) return { rows: 2, cols: Math.ceil(cellCount / 2) };
+    if (cellCount <= 12) return { rows: 3, cols: 4 };
+    return { rows: Math.ceil(cellCount / 4), cols: 4 };
+  }
+
+  _balanceChargerHTML() {
+    const { show_header } = this._config;
+    const device = this._hass.devices[this._config.device_id];
+    const customTitle = this._config.title;
+    const model = (device?.model || device?.name || "ISDT Charger").replace(/^ISDT\s+/i, "");
+    const title = customTitle || model;
+    const slots = Object.keys(this._entities.slots).map(Number).sort((a, b) => a - b);
+
+    let h = '<div class="isdt-card balance-card">';
+    if (show_header) h += this._headerHTML(title);
+    h += '<div class="pack-wrap">';
+    for (const slot of slots) h += this._packTileHTML(slot);
+    h += "</div></div>";
+    return h;
+  }
+
+  _packTileHTML(slot) {
+    const e = this._entities.slots[slot];
+    const status = this._st(e?.status, "empty");
+    const isEmpty = status === "empty";
+    const isCharging = status === "charging";
+
+    const pct = this._num(e?.capacity, 0);
+    const vol = this._num(e?.output_voltage, 0);
+    const cur = this._num(e?.charging_current, 0);
+    const btype = this._st(e?.battery_type, "");
+    const mah = this._num(e?.capacity_done, 0);
+    const wh = this._num(e?.energy_done, 0);
+
+    const since = this._st(e?.charge_time, null);
+    let timeStr = "–";
+    if (since && !["unavailable", "unknown", "–"].includes(since)) {
+      const d = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000));
+      const hh = String(Math.floor(d / 3600)).padStart(2, "0");
+      const mm = String(Math.floor((d % 3600) / 60)).padStart(2, "0");
+      const ss = String(d % 60).padStart(2, "0");
+      timeStr = `${hh}:${mm}:${ss}`;
+    }
+
+    const fillW = isEmpty ? 0 : Math.max(2, pct);
+    const color = isCharging ? this._chargeColor(pct) : null;
+
+    // Collect populated cells (V > 0.1 = cell present)
+    const cells = e?.cells || {};
+    const populatedCells = [];
+    for (let i = 0; i < MAX_CELLS_PER_CHANNEL; i++) {
+      const entityId = cells[i];
+      if (!entityId) continue;
+      const st = this._hass.states[entityId];
+      const v = parseFloat(st?.state);
+      if (!isNaN(v) && v > 0.1) {
+        const irAttr = st?.attributes?.ir_mohm;
+        populatedCells.push({
+          index: i,
+          voltage: v,
+          ir: typeof irAttr === "number" ? irAttr : null,
+          entityId,
+        });
+      }
+    }
+
+    const { rows, cols } = this._cellGridDimensions(populatedCells.length);
+
+    // Drift detection: any cell deviating > 20 mV from the median is flagged.
+    let drift = new Set();
+    if (populatedCells.length > 1) {
+      const sorted = [...populatedCells.map(c => c.voltage)].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      populatedCells.forEach(c => {
+        if (Math.abs(c.voltage - median) > 0.02) drift.add(c.index);
+      });
+    }
+
+    let cellChipsHTML = "";
+    for (const c of populatedCells) {
+      const driftClass = drift.has(c.index) ? " drift" : "";
+      const irHTML = c.ir != null
+        ? `<div class="cell-ir">${c.ir.toFixed(1)}<small> mΩ</small></div>`
+        : "";
+      cellChipsHTML += `
+        <div class="cell-cell${driftClass}" data-entity="${c.entityId}">
+          <div class="cell-v">${c.voltage.toFixed(2)}<small>V</small></div>
+          ${irHTML}
+          <span class="cell-no">${c.index + 1}</span>
+        </div>`;
+    }
+
+    // Pack-info column
+    const statusLabel = this._t("status_" + status);
+    const btypeText = btype && btype !== "unavailable" && btype !== "–" ? btype : "";
+    const sCount = populatedCells.length;
+    const btypePill = btypeText && sCount > 0
+      ? `<span class="btype-label">${btypeText} · ${sCount}S</span>`
+      : btypeText
+        ? `<span class="btype-label">${btypeText}</span>`
+        : "";
+
+    const accent = color ? color.fill : null;
+    const fillStyle = `width:${fillW}%${color ? `;background:linear-gradient(90deg,${color.deep},${color.fill})` : ""}`;
+    const bodyStyle = color ? `border-color:${color.glow};box-shadow:0 0 16px ${color.shadow}` : "";
+    const badgeStyle = accent ? `style="color:${accent}"` : "";
+
+    let info;
+    if (isEmpty) {
+      info = `
+        <div class="pack-info">
+          <span class="status-badge" data-entity="${e?.status || ""}">${statusLabel}</span>
+          <div class="pack-empty-icon"><ha-icon icon="mdi:battery-off-outline"></ha-icon></div>
+          <span class="pack-empty-hint">${this._t("balance_no_pack")}</span>
+        </div>`;
+    } else {
+      info = `
+        <div class="pack-info">
+          <span class="status-badge ${status}" data-entity="${e?.status || ""}" ${badgeStyle}>${statusLabel}</span>
+          <div class="pack-pct" data-entity="${e?.capacity || ""}">
+            <span class="pct-num">${Math.round(pct)}</span><span class="pct-sym">%</span>
+            ${isCharging ? `<ha-icon icon="mdi:lightning-bolt" class="pack-bolt" style="color:${accent || 'var(--isdt-charging)'}"></ha-icon>` : ""}
+          </div>
+          ${btypePill}
+        </div>`;
+    }
+
+    return `
+      <div class="pack-slot ${status}" data-slot="${slot}">
+        <div class="pack-shell">
+          <div class="pack-body" ${bodyStyle ? `style="${bodyStyle}"` : ""}>
+            <div class="pack-fill" style="${fillStyle}"></div>
+            <span class="channel-badge">${this._t("balance_channel")} ${slot}</span>
+            <div class="pack-content">
+              <div class="cells-grid" style="grid-template-columns: repeat(${cols}, 1fr); grid-template-rows: repeat(${rows}, auto);">
+                ${cellChipsHTML}
+              </div>
+              ${info}
+            </div>
+          </div>
+        </div>
+        <div class="pack-stats ${isEmpty ? "hidden" : ""}">
+          <div class="slot-vi">
+            <span data-entity="${e?.output_voltage || ""}"><ha-icon icon="mdi:flash"></ha-icon>${vol.toFixed(2)} V</span>
+            <span data-entity="${e?.charging_current || ""}"><ha-icon icon="mdi:current-dc"></ha-icon>${cur.toFixed(3)} A</span>
+          </div>
+          ${status === "charging" || status === "done" ? `
+            <div class="slot-session">
+              <span class="time-val" data-entity="${e?.charge_time || ""}" ${isCharging ? `data-since="${since || ""}"` : ""}><ha-icon icon="mdi:timer-outline"></ha-icon>${timeStr}</span>
+              <span class="session-energy">${mah.toFixed(0)} mAh / ${wh.toFixed(2)} Wh</span>
+            </div>` : ""}
+        </div>
+      </div>`;
   }
 
   _visibleSlots() {
@@ -408,7 +618,122 @@ export class ISDTChargerCard extends HTMLElement {
 
   _updateDynamic() {
     if (this._entities?.type === "adapter") return this._adapterUpdateDynamic();
+    if (this._entities?.type === "balance_charger") return this._balanceChargerUpdateDynamic();
     return this._chargerUpdateDynamic();
+  }
+
+  _balanceChargerUpdateDynamic() {
+    const root = this.shadowRoot;
+    if (!root) return;
+
+    // Update the shared header stats (same fields as the round-cell card).
+    const { main } = this._entities;
+    const iV = this._num(main.input_voltage);
+    const iA = this._num(main.input_current);
+    const tA = this._num(main.total_charging_current);
+    const iW = (iV * iA).toFixed(1);
+    this._setField(root, "input-v", `${iV.toFixed(1)}<small>V</small>`);
+    this._setField(root, "input-a", `${iA.toFixed(2)}<small>A</small>`);
+    this._setField(root, "input-w", `${iW}<small>W</small>`);
+    this._setField(root, "total-a", `${tA.toFixed(2)}<small>A</small>`);
+
+    const connected = this._st(main.connected, "off") === "on";
+    const connIcon = root.querySelector(".conn-icon");
+    if (connIcon) {
+      connIcon.classList.toggle("disconnected", !connected);
+      connIcon.setAttribute("title", this._t(connected ? "tooltip_connected" : "tooltip_disconnected"));
+    }
+    const beep = this._st(main.beep, "off") === "on";
+    const beepBtn = root.querySelector(".beep-btn");
+    if (beepBtn) {
+      beepBtn.className = `beep-btn ${beep ? "on" : ""}`;
+      const icon = beepBtn.querySelector("ha-icon");
+      if (icon) icon.setAttribute("icon", beep ? "mdi:volume-high" : "mdi:volume-off");
+    }
+
+    // Update each pack tile in-place. The structKey above triggers a full
+    // re-render on status / cell-count change, so here we only refresh
+    // numeric values that don't change the layout.
+    for (const slot of Object.keys(this._entities.slots).map(Number)) {
+      const slotEl = root.querySelector(`.pack-slot[data-slot="${slot}"]`);
+      if (!slotEl) continue;
+
+      const e = this._entities.slots[slot];
+      const status = this._st(e?.status, "empty");
+      const isCharging = status === "charging";
+      const pct = this._num(e?.capacity, 0);
+      const vol = this._num(e?.output_voltage, 0);
+      const cur = this._num(e?.charging_current, 0);
+      const mah = this._num(e?.capacity_done, 0);
+      const wh = this._num(e?.energy_done, 0);
+
+      const fillEl = slotEl.querySelector(".pack-fill");
+      if (fillEl) {
+        const fillW = status === "empty" ? 0 : Math.max(2, pct);
+        const color = isCharging ? this._chargeColor(pct) : null;
+        fillEl.style.width = `${fillW}%`;
+        if (color) fillEl.style.background = `linear-gradient(90deg,${color.deep},${color.fill})`;
+      }
+      if (isCharging) {
+        const color = this._chargeColor(pct);
+        const bodyEl = slotEl.querySelector(".pack-body");
+        if (bodyEl) {
+          bodyEl.style.borderColor = color.glow;
+          bodyEl.style.boxShadow = `0 0 16px ${color.shadow}`;
+        }
+        const bolt = slotEl.querySelector(".pack-bolt");
+        if (bolt) bolt.style.color = color.fill;
+        const badge = slotEl.querySelector(".status-badge");
+        if (badge) badge.style.color = color.fill;
+      }
+
+      const pctNum = slotEl.querySelector(".pct-num");
+      if (pctNum) pctNum.textContent = Math.round(pct);
+
+      // Per-cell V + IR refresh
+      const cells = e?.cells || {};
+      const cellEls = slotEl.querySelectorAll(".cell-cell");
+      const voltages = [];
+      cellEls.forEach((el) => {
+        const eid = el.getAttribute("data-entity");
+        if (!eid) return;
+        const st = this._hass.states[eid];
+        const v = parseFloat(st?.state);
+        if (isNaN(v)) return;
+        voltages.push(v);
+        const vEl = el.querySelector(".cell-v");
+        if (vEl) vEl.innerHTML = `${v.toFixed(2)}<small>V</small>`;
+        const irAttr = st?.attributes?.ir_mohm;
+        const irEl = el.querySelector(".cell-ir");
+        if (irEl && typeof irAttr === "number") {
+          irEl.innerHTML = `${irAttr.toFixed(1)}<small> mΩ</small>`;
+        }
+      });
+      // Refresh drift highlighting against the new median.
+      if (voltages.length > 1) {
+        const sorted = [...voltages].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        cellEls.forEach((el, idx) => {
+          if (idx >= voltages.length) return;
+          el.classList.toggle("drift", Math.abs(voltages[idx] - median) > 0.02);
+        });
+      } else {
+        cellEls.forEach((el) => el.classList.remove("drift"));
+      }
+
+      // V/A row + session energy
+      const vi = slotEl.querySelectorAll(".slot-vi:not(.sub) span");
+      if (vi.length >= 2) {
+        for (const [i, text] of [[0, `${vol.toFixed(2)} V`], [1, `${cur.toFixed(3)} A`]]) {
+          const icon = vi[i].querySelector("ha-icon");
+          vi[i].textContent = "";
+          if (icon) vi[i].appendChild(icon);
+          vi[i].append(text);
+        }
+      }
+      const energyEl = slotEl.querySelector(".session-energy");
+      if (energyEl) energyEl.textContent = `${mah.toFixed(0)} mAh / ${wh.toFixed(2)} Wh`;
+    }
   }
 
   _chargerUpdateDynamic() {
@@ -1535,6 +1860,142 @@ export class ISDTChargerCard extends HTMLElement {
     }
     .port.off .port-bar-fill { background: var(--disabled-text-color); }
 
+    /* ════════ Balance-charger (Air 8, K2 Air) ════════ */
+    .pack-wrap {
+      padding: 12px 12px 16px;
+      display: flex; flex-direction: column; gap: 18px;
+    }
+    .pack-slot { display: flex; flex-direction: column; }
+    .pack-shell { display: flex; flex-direction: row; align-items: center; width: 100%; }
+
+    .pack-body {
+      position: relative; flex: 1; min-height: 130px;
+      background: var(--secondary-background-color, rgba(0,0,0,0.04));
+      border: 2px solid var(--divider-color, #e0e0e0);
+      border-radius: 14px;
+      overflow: hidden;
+      transition: border-color 0.4s, box-shadow 0.4s;
+    }
+    .pack-fill {
+      position: absolute; top: 0; left: 0; bottom: 0;
+      opacity: 0.18;
+      transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .channel-badge {
+      position: absolute; top: 8px; left: 10px;
+      font-size: 10px; font-weight: 700;
+      color: var(--secondary-text-color);
+      background: var(--card-background-color, #fff);
+      padding: 1px 7px; border-radius: 4px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      z-index: 3;
+    }
+
+    .pack-content {
+      position: relative; z-index: 2;
+      display: grid;
+      grid-template-columns: 1fr 110px;
+      gap: 10px;
+      padding: 14px 12px 16px 14px;
+    }
+
+    .cells-grid { display: grid; gap: 4px; }
+    .cell-cell {
+      background: rgba(255,255,255,0.7);
+      border: 1px solid rgba(0,0,0,0.07);
+      border-radius: 6px;
+      padding: 16px 4px;
+      text-align: center;
+      position: relative;
+    }
+    .cell-cell.drift { border-color: rgba(255,153,85,0.55); }
+    .cell-v {
+      font-size: 12px; font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--primary-text-color);
+      line-height: 1.1;
+    }
+    .cell-v small {
+      font-size: 8.5px; font-weight: 400;
+      color: var(--secondary-text-color); margin-left: 1px;
+    }
+    .cell-ir {
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+      color: var(--secondary-text-color);
+      margin-top: 2px; line-height: 1;
+    }
+    .cell-ir small { font-size: 8px; }
+    .cell-no {
+      position: absolute; bottom: 3px; left: 3px;
+      font-size: 7px; font-weight: 700;
+      color: var(--secondary-text-color);
+      background: var(--card-background-color, #fff);
+      padding: 1px 5px; border-radius: 3px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+      line-height: 1; letter-spacing: 0.5px;
+    }
+
+    .pack-info {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 4px; text-align: center;
+    }
+    .pack-pct {
+      display: flex; align-items: baseline; line-height: 1;
+      font-variant-numeric: tabular-nums;
+      margin-top: 2px;
+    }
+    .pack-pct .pct-num { font-size: 30px; font-weight: 800; color: var(--primary-text-color); }
+    .pack-pct .pct-sym { font-size: 12px; font-weight: 500; color: var(--secondary-text-color); margin-left: 1px; }
+    .pack-bolt {
+      --mdc-icon-size: 18px;
+      margin-left: 3px;
+      filter: drop-shadow(0 0 4px currentColor);
+      animation: bolt 1.2s ease-in-out infinite;
+    }
+    .pack-empty-icon { --mdc-icon-size: 28px; color: var(--disabled-text-color, #bdbdbd); margin: 4px 0; }
+    .pack-empty-hint { font-size: 9px; color: var(--secondary-text-color); opacity: 0.6; }
+
+    /* Done / empty pack-tile colors */
+    .pack-slot.done .pack-body {
+      border-color: rgba(66,165,245,0.45);
+      box-shadow: 0 0 16px rgba(66,165,245,0.1);
+    }
+    .pack-slot.done .pack-fill {
+      background: linear-gradient(90deg, var(--isdt-done-deep), var(--isdt-done));
+      opacity: 0.18;
+    }
+    .pack-slot.done .status-badge { color: var(--isdt-done); }
+    .pack-slot.empty .pack-body { opacity: 0.55; }
+    .pack-slot.error .pack-body {
+      border-color: rgba(239,83,80,0.5);
+      box-shadow: 0 0 16px rgba(239,83,80,0.12);
+      animation: err-b 2s ease-in-out infinite;
+    }
+
+    .pack-stats {
+      padding: 0 6px;
+      display: flex; flex-direction: column; gap: 4px;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .pack-stats.hidden { display: none; }
+    .pack-stats .slot-vi {
+      display: flex; justify-content: space-between;
+      color: var(--primary-text-color);
+    }
+    .pack-stats .slot-vi span {
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .pack-stats .slot-vi ha-icon { --mdc-icon-size: 14px; opacity: 0.55; }
+    .pack-stats .slot-session {
+      display: flex; justify-content: space-between;
+      color: var(--secondary-text-color); font-size: 11px;
+    }
+    .pack-stats .slot-session ha-icon { --mdc-icon-size: 13px; opacity: 0.55; margin-right: 2px; }
+
     /* ════════ Narrow card ════════ */
     @container (max-width: 350px) {
       .battery-info { display: none; }
@@ -1549,6 +2010,8 @@ export class ISDTChargerCard extends HTMLElement {
       .power-row .val { font-size: 11px; }
       .sound-opt { padding: 5px 6px; }
       .sound-opt ha-icon { --mdc-icon-size: 16px; }
+      .pack-content { grid-template-columns: 1fr 85px; gap: 8px; padding: 12px 10px 14px 12px; }
+      .pack-pct .pct-num { font-size: 24px; }
     }
     `;
   }
