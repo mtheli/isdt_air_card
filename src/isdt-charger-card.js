@@ -9,7 +9,7 @@
 
 import { t } from './translations.js';
 
-export const CARD_VERSION = "0.7.0";
+export const CARD_VERSION = "0.8.0";
 
 // Adapter total power limit by model (device-rated, not sum of port maxes).
 const ADAPTER_TOTAL_MAX = {

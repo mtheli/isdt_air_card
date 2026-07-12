@@ -9,6 +9,17 @@ window.customCards.push({
   description: "Dashboard card for ISDT Air BLE chargers and adapters (MASS2) — adapts to your HA theme",
   preview: true,
   documentationURL: "https://github.com/mtheli/isdt_air_card",
+  // Card picker suggestion (HA 2026.6+): suggest this card for any
+  // isdt_air_ble entity. Slot/port entities live on sub-devices linked to
+  // the charger via via_device_id — climb to the main device the card expects.
+  getEntitySuggestion: (hass, entityId) => {
+    const entity = hass.entities?.[entityId];
+    if (!entity || entity.platform !== "isdt_air_ble") return null;
+    let deviceId = entity.device_id;
+    const parentId = hass.devices?.[deviceId]?.via_device_id;
+    if (parentId && hass.devices?.[parentId]) deviceId = parentId;
+    return { config: { type: "custom:isdt-charger-card", device_id: deviceId } };
+  },
 });
 
 console.info(

@@ -28,7 +28,7 @@ function $d8078e452c66bdbe$export$625550452a3fa3ec(hass, key) {
 }
 
 
-const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.7.0";
+const $9a3262f48b2f355e$export$d5e7ce6d07daf10f = "0.8.0";
 // Adapter total power limit by model (device-rated, not sum of port maxes).
 const $9a3262f48b2f355e$var$ADAPTER_TOTAL_MAX = {
     "MASS2": 200
@@ -2054,7 +2054,23 @@ window.customCards.push({
     name: "ISDT Air Card",
     description: "Dashboard card for ISDT Air BLE chargers and adapters (MASS2) \u2014 adapts to your HA theme",
     preview: true,
-    documentationURL: "https://github.com/mtheli/isdt_air_card"
+    documentationURL: "https://github.com/mtheli/isdt_air_card",
+    // Card picker suggestion (HA 2026.6+): suggest this card for any
+    // isdt_air_ble entity. Slot/port entities live on sub-devices linked to
+    // the charger via via_device_id — climb to the main device the card expects.
+    getEntitySuggestion: (hass, entityId)=>{
+        const entity = hass.entities?.[entityId];
+        if (!entity || entity.platform !== "isdt_air_ble") return null;
+        let deviceId = entity.device_id;
+        const parentId = hass.devices?.[deviceId]?.via_device_id;
+        if (parentId && hass.devices?.[parentId]) deviceId = parentId;
+        return {
+            config: {
+                type: "custom:isdt-charger-card",
+                device_id: deviceId
+            }
+        };
+    }
 });
 console.info(`%c ISDT-AIR-CARD %c v${(0, $9a3262f48b2f355e$export$d5e7ce6d07daf10f)} `, "color:#4caf50;background:#222;font-weight:bold;padding:2px 6px;border-radius:3px 0 0 3px", "color:#e1e1e1;background:#444;padding:2px 6px;border-radius:0 3px 3px 0");
 
