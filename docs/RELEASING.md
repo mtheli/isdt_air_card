@@ -15,17 +15,32 @@ every reader can open beats a partial set of translated ones. German belongs
 in the German-language forum threads, where a release gets announced in the
 reader's own language; the notes themselves stay English.
 
-**Structure:** `##` sections by theme, each holding bullets that open with a
-bold phrase and then explain themselves in one or two sentences. A short
-lead-in paragraph before the bullets is fine when they need context.
+**One section per feature.** The bullets underneath carry the details. If it is
+not obvious who a feature applies to, say so in one line under the heading.
+
+**One sentence per bullet,** opening with two to five bold words that run into
+the sentence. No labels, no whole sentence in bold. Write what the user sees,
+with the previous behaviour as a short trailing clause where one is needed.
+
+**Plain language.** No literary voice, no marketing tone, no idiom where a verb
+will do. This holds for commit messages too. Reasoning belongs in the commit
+message, not in the notes.
+
+**No hard line breaks.** GitHub renders a single newline as a line break and
+tears prose apart mid-sentence. One paragraph, one line.
 
 ```markdown
-## Card picker suggestions
+## Interrupted sessions
 
-- **The card suggests itself in the "Add card" picker** on Home Assistant
-  2026.6 or newer — pick any entity of an ISDT charger, including a slot or
-  port sensor, and the card appears preconfigured under *Community*.
-- **Older Home Assistant versions are untouched.**
+- **Finished zones** are marked on the tooth ring. The text already counted them.
+- **The zones survive** a page reload.
+
+## Source of the summary
+
+Only for `philips_sonicare_ble` and `oralb_live`.
+
+- **The tooltip distinguishes** "read from the brush" from "counted by Home Assistant". Both used to claim the first.
+- **Late records** are accepted. A Sonicare for Kids delivers only on the next connection.
 ```
 
 **Title:** `vX.Y.Z — what it is about`, e.g.
