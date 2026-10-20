@@ -32,5 +32,6 @@
   "sound_medium": "Medium volume",
   "sound_high": "High volume",
   "balance_channel": "CH",
-  "balance_no_pack": "no pack"
+  "balance_no_pack": "no pack",
+  "outdated_standalone_active": "An outdated standalone copy of this card is active. Remove the standalone ISDT Charger Card (see Settings → Repairs) to use the up-to-date version bundled with the integration."
 }

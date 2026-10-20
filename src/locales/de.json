@@ -32,5 +32,6 @@
   "sound_medium": "Mittel",
   "sound_high": "Laut",
   "balance_channel": "Kanal",
-  "balance_no_pack": "kein Akku"
+  "balance_no_pack": "kein Akku",
+  "outdated_standalone_active": "Eine veraltete separate Kopie dieser Karte ist aktiv. Entferne die separate ISDT Charger Card (siehe Einstellungen → Reparaturen), um die aktuelle, mit der Integration gelieferte Version zu nutzen."
 }

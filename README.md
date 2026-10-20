@@ -6,6 +6,11 @@
 
 Custom Lovelace card for [ISDT Air BLE](https://github.com/mtheli/isdt_air_ble) chargers and adapters in Home Assistant. Select your device and all entities are discovered automatically. Adapts to your HA theme (light & dark).
 
+> [!IMPORTANT]
+> **The card now ships with the [ISDT Air BLE integration](https://github.com/mtheli/isdt_air_ble)** (v0.11.0 and newer), no separate installation needed anymore. If you installed the card from this repository, please remove it: in HACS remove *ISDT Charger Card* (this also removes the dashboard resource), or delete the manually added resource. Your dashboards keep working unchanged, the card type stays `custom:isdt-charger-card`.
+>
+> This repository remains the home of the card's source code and issue tracker, but there will be no further standalone releases. Card updates ship with integration releases.
+
 Two layouts, picked automatically from the device model:
 
 ### Charger (C4 Air, A8 Air, K2 Air, Air 8, NP2 Air, …)
@@ -39,21 +44,11 @@ Two layouts, picked automatically from the device model:
 
 ## Installation
 
-### HACS (recommended)
+Install the [ISDT Air BLE integration](https://github.com/mtheli/isdt_air_ble), the card comes with it. The integration registers the card as a dashboard resource itself.
 
-1. Open HACS → **Frontend** → ⋮ → **Custom repositories**
-2. Add this repository URL as **Dashboard**
-3. Search for "ISDT Charger Card" and install
-4. Refresh your browser (Ctrl+F5)
+### Development
 
-### Manual
-
-1. Copy `dist/isdt-charger-card.js` to `config/www/isdt-charger-card.js`
-2. Add the resource in HA:
-   - **Settings → Dashboards → ⋮ → Resources**
-   - URL: `/local/isdt-charger-card.js`
-   - Type: **JavaScript Module**
-3. Refresh your browser
+`npm install`, then `npm run watch` for a local build in `dist/`. Release builds are made by `scripts/sync_card.sh` in the integration repository, which stamps the integration version into the card.
 
 ## Configuration
 
