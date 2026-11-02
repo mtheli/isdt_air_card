@@ -337,6 +337,14 @@ export class ISDTChargerCard extends HTMLElement {
     return isNaN(v) ? fb : v;
   }
 
+  /* Session text "555 mAh / 0.81 Wh". Chargers without an energy counter
+     (NP2 Air, LP2 Air) have no energy_done entity: show mAh only. */
+  _sessionText(e) {
+    const mah = `${this._num(e?.capacity_done, 0).toFixed(0)} mAh`;
+    if (!e?.energy_done) return mah;
+    return `${mah} / ${this._num(e.energy_done, 0).toFixed(2)} Wh`;
+  }
+
   /* ── Render ─────────────────────────────────────────── */
 
   _render() {
@@ -459,8 +467,6 @@ export class ISDTChargerCard extends HTMLElement {
     const vol = this._num(e?.output_voltage, 0);
     const cur = this._num(e?.charging_current, 0);
     const btype = this._st(e?.battery_type, "");
-    const mah = this._num(e?.capacity_done, 0);
-    const wh = this._num(e?.energy_done, 0);
 
     const since = this._st(e?.charge_time, null);
     let timeStr = "–";
@@ -577,7 +583,7 @@ export class ISDTChargerCard extends HTMLElement {
           ${status === "charging" || status === "done" ? `
             <div class="slot-session">
               <span class="time-val" data-entity="${e?.charge_time || ""}" ${isCharging ? `data-since="${since || ""}"` : ""}><ha-icon icon="mdi:timer-outline"></ha-icon>${timeStr}</span>
-              <span class="session-energy">${mah.toFixed(0)} mAh / ${wh.toFixed(2)} Wh</span>
+              <span class="session-energy">${this._sessionText(e)}</span>
             </div>` : ""}
         </div>
       </div>`;
@@ -664,8 +670,6 @@ export class ISDTChargerCard extends HTMLElement {
       const pct = this._num(e?.capacity, 0);
       const vol = this._num(e?.output_voltage, 0);
       const cur = this._num(e?.charging_current, 0);
-      const mah = this._num(e?.capacity_done, 0);
-      const wh = this._num(e?.energy_done, 0);
 
       const fillEl = slotEl.querySelector(".pack-fill");
       if (fillEl) {
@@ -732,7 +736,7 @@ export class ISDTChargerCard extends HTMLElement {
         }
       }
       const energyEl = slotEl.querySelector(".session-energy");
-      if (energyEl) energyEl.textContent = `${mah.toFixed(0)} mAh / ${wh.toFixed(2)} Wh`;
+      if (energyEl) energyEl.textContent = this._sessionText(e);
     }
   }
 
@@ -780,8 +784,6 @@ export class ISDTChargerCard extends HTMLElement {
       const cur = this._num(e?.charging_current, 0);
       const vol = this._num(e?.output_voltage, 0);
       const btype = this._st(e?.battery_type, "–");
-      const mah = this._num(e?.capacity_done, 0);
-      const wh = this._num(e?.energy_done, 0);
 
       // Update fill width and colors
       const fillEl = slotEl.querySelector(".battery-fill");
@@ -826,7 +828,7 @@ export class ISDTChargerCard extends HTMLElement {
 
       // Update session energy (time is handled by timer)
       const energyEl = slotEl.querySelector(".session-energy");
-      if (energyEl) energyEl.textContent = `${mah.toFixed(0)} mAh / ${wh.toFixed(2)} Wh`;
+      if (energyEl) energyEl.textContent = this._sessionText(e);
     }
   }
 
@@ -1193,8 +1195,6 @@ export class ISDTChargerCard extends HTMLElement {
     const cur = this._num(e?.charging_current, 0);
     const vol = this._num(e?.output_voltage, 0);
     const btype = this._st(e?.battery_type, "–");
-    const mah = this._num(e?.capacity_done, 0);
-    const wh = this._num(e?.energy_done, 0);
 
     const since = this._st(e?.charge_time, null);
     let timeStr = "–";
@@ -1270,7 +1270,7 @@ export class ISDTChargerCard extends HTMLElement {
           ${isActive ? `
             <div class="slot-session">
               <span class="time-val" data-entity="${e?.charge_time || ""}" ${isCharging ? `data-since="${since || ""}"` : ""}><ha-icon icon="mdi:timer-outline"></ha-icon>${timeStr}</span>
-              <span class="session-energy">${mah.toFixed(0)} mAh / ${wh.toFixed(2)} Wh</span>
+              <span class="session-energy">${this._sessionText(e)}</span>
             </div>` : ""}
         </div>
       </div>`;
