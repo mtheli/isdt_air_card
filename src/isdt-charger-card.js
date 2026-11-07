@@ -24,7 +24,7 @@ const MASS2_USBA_MAX = 12;
 // V + IR chips rather than the AA-style slot grid used for round-cell
 // chargers. Stay in sync with BALANCE_CHARGER_MODELS in the integration's
 // custom_components/isdt_air_ble/const.py.
-const BALANCE_CHARGER_MODELS = new Set(["Air 8", "K2 Air"]);
+const BALANCE_CHARGER_MODELS = new Set(["Air 8", "K2 Air", "K4"]);
 
 // Maximum number of cells the protocol can report per channel
 // (ElectricResp short variant carries 8 cellVoltageList slots).
@@ -428,7 +428,7 @@ export class ISDTChargerCard extends HTMLElement {
   }
 
   /* ────────────────────────────────────────────────────────────────
-     Balance-charger layout (Air 8, K2 Air)
+     Balance-charger layout (Air 8, K2 Air, K4)
      One full-width pack tile per channel with per-cell V + IR chips.
      ──────────────────────────────────────────────────────────────── */
 
@@ -602,7 +602,7 @@ export class ISDTChargerCard extends HTMLElement {
       return use56 ? [5, 6] : [1, 2, 3, 4];
     }
     // Every other charger: show exactly the slots the integration created.
-    // Air 8 → 1, K2 Air → 2, A4 Air → 4, A8 Air → 8, …
+    // Air 8 → 1, K2 Air/K4 → 2, A4 Air → 4, A8 Air → 8, …
     return allSlots;
   }
 
@@ -1867,7 +1867,7 @@ export class ISDTChargerCard extends HTMLElement {
     }
     .port.off .port-bar-fill { background: var(--disabled-text-color); }
 
-    /* ════════ Balance-charger (Air 8, K2 Air) ════════ */
+    /* ════════ Balance-charger (Air 8, K2 Air, K4) ════════ */
     .pack-wrap {
       padding: 12px 12px 16px;
       display: flex; flex-direction: column; gap: 18px;
