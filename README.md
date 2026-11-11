@@ -1,13 +1,12 @@
 # ISDT Air Card
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/v/release/mtheli/isdt_air_card)](https://github.com/mtheli/isdt_air_card/releases)
 [![License: MIT](https://img.shields.io/github/license/mtheli/isdt_air_card)](LICENSE)
 
 Custom Lovelace card for [ISDT Air BLE](https://github.com/mtheli/isdt_air_ble) chargers and adapters in Home Assistant. Select your device and all entities are discovered automatically. Adapts to your HA theme (light & dark).
 
 > [!IMPORTANT]
-> **The card now ships with the [ISDT Air BLE integration](https://github.com/mtheli/isdt_air_ble)** (v0.11.0 and newer), no separate installation needed anymore. If you installed the card from this repository, please remove it: in HACS remove *ISDT Charger Card* (this also removes the dashboard resource), or delete the manually added resource. Your dashboards keep working unchanged, the card type stays `custom:isdt-charger-card`.
+> **The card now ships with the [ISDT Air BLE integration](https://github.com/mtheli/isdt_air_ble)** (v0.11.0 and newer), no separate installation needed anymore. If you installed the card from this repository, please remove it: remove *ISDT Charger Card* in the Marketplace (in HACS before Home Assistant 2026.11; this also removes the dashboard resource), or delete the manually added resource. Your dashboards keep working unchanged, the card type stays `custom:isdt-charger-card`.
 >
 > This repository remains the home of the card's source code and issue tracker, but there will be no further standalone releases. Card updates ship with integration releases.
 
