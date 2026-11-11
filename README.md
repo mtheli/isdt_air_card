@@ -21,6 +21,12 @@ Two layouts, picked automatically from the device model:
 
 ![ISDT Adapter Layout](images/screenshot-mass2.png)
 
+### BattAir packs (`custom:isdt-battair-card`, beta)
+
+A separate card lists every BattAir pack and plugin, one line per pack. Packs with a problem move to the top with the problem in red, other states show as icons. No device selection: the card finds all packs by itself.
+
+![ISDT BattAir Card](images/screenshot-battair.png)
+
 ## Features
 
 ### Charger layout
@@ -35,6 +41,13 @@ Two layouts, picked automatically from the device model:
 - **Sound popover** in the header — click the speaker icon to pick Mute / Low / Med / High
 - **Rename-aware**: port labels follow `name_by_user` when you rename a sub-device in the HA UI ("USB-A1" → "Toothbrush")
 - **Pulse-charging safe**: the tile state follows the integration's phantom-load filter, so actively charging devices (e.g. a NiMH charger on USB-C) don't flip between active/off
+
+### BattAir card
+- **One line per pack**: name, cells, capacity, average cell voltage, charge bar and level
+- **Problems in red** instead of the sub line: error log, low cell voltage, temperature below 5 °C or above 45 °C; these packs sort to the top
+- **Icons** for every active warning, including storage discharge and transport mode
+- **Out-of-range packs** stay in the list with the time they were last seen
+- **Options**: `title`, `sort` (`name`, `charge`, `last_seen`), `hide_unavailable`, `show_cycles`
 
 ### Both
 - **Device-based setup** — select your ISDT device, no entity prefix needed
