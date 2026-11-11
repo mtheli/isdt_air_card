@@ -1,6 +1,7 @@
 import { ISDTChargerCard, CARD_VERSION } from "./isdt-charger-card.js";
 import { CARD_ORIGIN } from "./version.js";
 import { t } from "./translations.js";
+import { ISDTBattAirCard, BATTAIR_TAG, isBattAirEntity } from "./isdt-battair-card.js";
 
 const TAG = "isdt-charger-card";
 const BANNER_ID = "isdt-charger-card-outdated-banner";
@@ -71,6 +72,8 @@ if (winner) {
     getEntitySuggestion: (hass, entityId) => {
       const entity = hass.entities?.[entityId];
       if (!entity || entity.platform !== "isdt_air_ble") return null;
+      // BattAir packs get their own overview card.
+      if (isBattAirEntity(hass, entityId)) return null;
       let deviceId = entity.device_id;
       const parentId = hass.devices?.[deviceId]?.via_device_id;
       if (parentId && hass.devices?.[parentId]) deviceId = parentId;
@@ -83,4 +86,20 @@ if (winner) {
     "color:#4caf50;background:#222;font-weight:bold;padding:2px 6px;border-radius:3px 0 0 3px",
     "color:#e1e1e1;background:#444;padding:2px 6px;border-radius:0 3px 3px 0"
   );
+}
+
+// The BattAir overview is registered on its own, so an outdated copy of the
+// charger card that won the race above does not keep it from loading.
+if (!customElements.get(BATTAIR_TAG)) {
+  customElements.define(BATTAIR_TAG, ISDTBattAirCard);
+  window.customCards = window.customCards || [];
+  window.customCards.push({
+    type: BATTAIR_TAG,
+    name: "ISDT BattAir Card",
+    description: "Overview of all ISDT BattAir packs and plugins: charge level, voltage and warnings",
+    preview: true,
+    documentationURL: "https://github.com/mtheli/isdt_air_ble#battair",
+    getEntitySuggestion: (hass, entityId) =>
+      isBattAirEntity(hass, entityId) ? { config: { type: `custom:${BATTAIR_TAG}` } } : null,
+  });
 }
