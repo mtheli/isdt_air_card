@@ -98,7 +98,7 @@ if (!customElements.get(BATTAIR_TAG)) {
     name: "ISDT BattAir Card",
     description: "Overview of all ISDT BattAir packs and plugins: charge level, voltage and warnings",
     preview: true,
-    documentationURL: "https://github.com/mtheli/isdt_air_ble#battair",
+    documentationURL: "https://github.com/mtheli/isdt_air_ble#battair-card",
     getEntitySuggestion: (hass, entityId) =>
       isBattAirEntity(hass, entityId) ? { config: { type: `custom:${BATTAIR_TAG}` } } : null,
   });
