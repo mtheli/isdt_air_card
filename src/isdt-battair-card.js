@@ -2,9 +2,10 @@
  * ISDT BattAir Card – overview of all BattAir packs and plugins.
  *
  * Finds every isdt_air_ble device with BattAir entities (translation keys
- * "battair_*") and shows one row per pack: charge level, voltage, average
- * cell voltage, temperature, cycles and warnings. Packs that are out of
- * range stay in the list with the time they were last heard.
+ * "battair_*") and shows one compact line per pack: name, cells, capacity,
+ * average cell voltage and charge level. Problems replace the sub line in
+ * red, every active warning gets its own icon. Packs that are out of range
+ * stay in the list with the time they were last heard.
  */
 
 import { t } from "./translations.js";
@@ -13,17 +14,11 @@ export const BATTAIR_TAG = "isdt-battair-card";
 
 const PREFIX = "battair_";
 
-const BATTERY_TYPE_LABELS = {
-  lihv: "LiHV",
-  lipo: "LiPo",
-  liion: "Li-Ion",
-  life: "LiFe",
-  pb: "Pb",
-  nimh: "NiMH",
-  liuhv: "LiUHV",
-};
-
 const SORTS = ["name", "charge", "last_seen"];
+
+// Temperature outside this range counts as a problem (°C).
+const TEMP_LOW = 5;
+const TEMP_HIGH = 45;
 
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -77,6 +72,11 @@ export class ISDTBattAirCard extends HTMLElement {
           label: t(null, "battair_config_hide_unavailable"),
           selector: { boolean: {} },
         },
+        {
+          name: "show_cycles",
+          label: t(null, "battair_config_show_cycles"),
+          selector: { boolean: {} },
+        },
       ],
     };
   }
@@ -106,7 +106,7 @@ export class ISDTBattAirCard extends HTMLElement {
   }
 
   getCardSize() {
-    return 1 + Math.max(1, this._packCount || 0) * 2;
+    return 2 + Math.max(1, this._packCount || 0);
   }
 
   getGridOptions() {
@@ -143,8 +143,9 @@ export class ISDTBattAirCard extends HTMLElement {
         ids,
         name: dev.name_by_user || dev.name || deviceId,
         // The card is titled BattAir already; "BattAir 4S 1300 mAh 88AD" reads
-        // as "4S 1300 mAh 88AD" in the list.
-        label: (dev.name_by_user || dev.name || deviceId).replace(/^BattAir\s+/i, "") ||
+        // as "4S 1300 mAh 88AD" in the list. Pack names from the advertisement
+        // are cut to 16 characters, so "BattAi-3s-..." counts as well.
+        label: (dev.name_by_user || dev.name || deviceId).replace(/^(BattAir?[\s-]+)+/i, "") ||
           dev.name || deviceId,
         plugin: (dev.model || "").toLowerCase().includes("plugin"),
         available,
@@ -167,7 +168,7 @@ export class ISDTBattAirCard extends HTMLElement {
 
   _sortPacks(packs) {
     const sort = SORTS.includes(this._config.sort) ? this._config.sort : "name";
-    const rank = (p) => (!p.available ? 2 : p.lowCell || p.errorLog ? 0 : 1);
+    const rank = (p) => (!p.available ? 2 : this._hasProblem(p) ? 0 : 1);
     const byName = (a, b) =>
       a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" });
     return packs.sort((a, b) => {
@@ -181,6 +182,39 @@ export class ISDTBattAirCard extends HTMLElement {
       }
       return byName(a, b);
     });
+  }
+
+  /** Active warnings of a pack, problems (red) first. */
+  _warnings(p) {
+    if (!p.available) return [];
+    const h = this._hass;
+    const w = [];
+    if (p.errorLog) {
+      w.push({ cls: "error", icon: "mdi:alert-circle", text: t(h, "battair_error_log"), entity: p.ids.error_log });
+    }
+    if (p.lowCell) {
+      w.push({
+        cls: "error", icon: "mdi:battery-alert-variant-outline", entity: p.ids.cell_voltage_low,
+        text: p.cell != null ? `${t(h, "battair_low_cell")} · ${this._fmt(p.cell, 2)} V` : t(h, "battair_low_cell"),
+      });
+    }
+    if (p.temperature != null && (p.temperature < TEMP_LOW || p.temperature > TEMP_HIGH)) {
+      w.push({
+        cls: "error", icon: "mdi:thermometer-alert", entity: p.ids.temperature,
+        text: `${t(h, "battair_temperature_alert")} · ${this._fmt(p.temperature, 0)} °C`,
+      });
+    }
+    if (p.storage) {
+      w.push({ cls: "info", icon: "mdi:battery-arrow-down-outline", text: t(h, "battair_storage"), entity: p.ids.storage_discharge });
+    }
+    if (p.transport) {
+      w.push({ cls: "muted", icon: "mdi:truck-outline", text: t(h, "battair_transport"), entity: p.ids.transport_mode });
+    }
+    return w;
+  }
+
+  _hasProblem(p) {
+    return this._warnings(p).some((w) => w.cls === "error");
   }
 
   /* ── Formatting ─────────────────────────────────────── */
@@ -233,7 +267,7 @@ export class ISDTBattAirCard extends HTMLElement {
     this._lastKey = key;
 
     const h = this._hass;
-    const warnings = online.filter((p) => p.lowCell || p.errorLog).length;
+    const warnings = online.filter((p) => this._hasProblem(p)).length;
     const away = total - online.length;
     const charges = online.map((p) => p.charge).filter((c) => c != null);
     const avg = charges.length ? Math.round(charges.reduce((a, b) => a + b, 0) / charges.length) : null;
@@ -278,67 +312,44 @@ export class ISDTBattAirCard extends HTMLElement {
 
   _row(p) {
     const h = this._hass;
-    const chem = [];
-    if (p.type) chem.push(BATTERY_TYPE_LABELS[p.type] || p.type);
-    if (p.cells != null) chem.push(`${p.cells}S`);
-    const spec = [];
-    if (p.capacity != null) spec.push(`${Math.round(p.capacity)} mAh`);
-    if (p.plugin) spec.push(t(h, "battair_plugin"));
+    const warn = this._warnings(p);
+    const errors = warn.filter((w) => w.cls === "error");
+    const color = p.available ? this._color(p.charge) : null;
+    const pct = color ? Math.max(3, Math.min(100, p.charge)) : 0;
 
-    // One status badge in the corner, most important first.
-    let badge = null;
-    if (!p.available) badge = { cls: "away", text: t(h, "battair_badge_away"), entity: p.ids.last_seen };
-    else if (p.errorLog) badge = { cls: "error", text: t(h, "battair_error_log"), entity: p.ids.error_log };
-    else if (p.lowCell) badge = { cls: "error", text: t(h, "battair_low_cell"), entity: p.ids.cell_voltage_low };
-    else if (p.storage) badge = { cls: "info", text: t(h, "battair_storage"), entity: p.ids.storage_discharge };
-    else if (p.transport) badge = { cls: "", text: t(h, "battair_transport"), entity: p.ids.transport_mode };
-    // Further warnings that did not make it into the corner.
-    const extra = [];
-    if (p.available && p.errorLog && p.lowCell) {
-      extra.push(`<span class="warn-line" data-entity="${p.ids.cell_voltage_low}"><ha-icon icon="mdi:alert"></ha-icon>${t(h, "battair_low_cell")}</span>`);
+    let sub;
+    if (!p.available) {
+      sub = `<div class="sub" data-entity="${p.ids.last_seen || ""}">${t(h, "battair_last_seen")} ${esc(this._ago(p.lastSeen))}</div>`;
+    } else if (errors.length) {
+      sub = `<div class="sub err" data-entity="${errors[0].entity || ""}">${esc(errors.map((w) => w.text).join(" · "))}</div>`;
+    } else {
+      const spec = [];
+      if (p.cells != null) spec.push(`${p.cells}S`);
+      if (p.capacity != null) spec.push(`${Math.round(p.capacity)} mAh`);
+      if (p.cell != null) spec.push(`Ø ${this._fmt(p.cell, 2)} V`);
+      if (this._config.show_cycles && p.cycles != null) {
+        spec.push(`${this._fmt(p.cycles, 0)} ${t(h, p.cycles === 1 ? "battair_cycle" : "battair_cycles")}`);
+      }
+      sub = `<div class="sub" data-entity="${p.ids.cell_voltage_avg || ""}">${esc(spec.join(" · "))}</div>`;
     }
 
-    const problem = p.available && (p.errorLog || p.lowCell);
-    const color = p.available ? this._color(p.charge) : null;
-    const pct = color ? Math.max(4, Math.min(100, p.charge)) : 0;
-    const fillStyle = color ? `width:${pct}%;background:linear-gradient(90deg,${color.deep},${color.fill})` : "width:0";
-    const bodyStyle = problem ? "" : color ? `border-color:${color.glow};box-shadow:0 0 12px ${color.shadow}` : "";
-    const termStyle = problem ? "" : color ? `background:${color.fill}` : "";
+    const icons = p.available
+      ? warn.map((w) => `<ha-icon class="${w.cls}" icon="${w.icon}" title="${esc(w.text)}" data-entity="${w.entity || ""}"></ha-icon>`).join("")
+      : `<ha-icon class="muted" icon="mdi:bluetooth-off" title="${esc(t(h, "battair_stat_away"))}" data-entity="${p.ids.last_seen || ""}"></ha-icon>`;
 
     const pctHTML = p.available && p.charge != null
-      ? `<span class="pct-num">${Math.round(p.charge)}</span><span class="pct-sym">%</span>`
-      : `<span class="pct-num dash">—</span>`;
-
-    const info = p.available
-      ? `<div class="pack-vi">
-          <span data-entity="${p.ids.voltage || ""}"><ha-icon icon="mdi:lightning-bolt"></ha-icon>${this._fmt(p.voltage, 2)} V</span>
-          <span data-entity="${p.ids.cell_voltage_avg || ""}">Ø ${this._fmt(p.cell, 3)} V/${t(h, "battair_cell")}</span>
-          <span data-entity="${p.ids.temperature || ""}"><ha-icon icon="mdi:thermometer"></ha-icon>${this._fmt(p.temperature, 0)} °C</span>
-          <span data-entity="${p.ids.cycles || ""}"><ha-icon icon="mdi:sync"></ha-icon>${this._fmt(p.cycles, 0)}</span>
-        </div>`
-      : `<div class="pack-vi away"><span data-entity="${p.ids.last_seen || ""}"><ha-icon icon="mdi:clock-outline"></ha-icon>${t(h, "battair_last_seen")} ${esc(this._ago(p.lastSeen))}</span></div>`;
+      ? `${Math.round(p.charge)}<small>%</small>`
+      : `<span class="dash">–</span>`;
 
     return `
-      <div class="pack ${p.available ? "" : "off"} ${problem ? "problem" : ""}">
-        <div class="shell" data-entity="${p.ids.battery || ""}">
-          <div class="body" style="${bodyStyle}">
-            <div class="fill" style="${fillStyle}"></div>
-            <div class="content">
-              <div class="ident">
-                <div class="name" title="${esc(p.name)}">${esc(p.label)}</div>
-                <div class="spec">
-                  ${chem.length ? `<span class="btype-label">${esc(chem.join(" · "))}</span>` : ""}
-                  ${spec.length ? `<span>${esc(spec.join(" · "))}</span>` : ""}
-                </div>
-              </div>
-              <div class="pct">${pctHTML}</div>
-            </div>
-            ${badge ? `<span class="status-badge ${badge.cls}" data-entity="${badge.entity || ""}">${esc(badge.text)}</span>` : ""}
-          </div>
-          <div class="terminal" style="${termStyle}"></div>
+      <div class="line ${p.available ? "" : "off"} ${errors.length ? "problem" : ""}">
+        <div class="who">
+          <div class="name" title="${esc(p.name)}" data-entity="${p.ids.battery || ""}">${esc(p.label)}</div>
+          ${sub}
         </div>
-        ${info}
-        ${extra.join("")}
+        <div class="bar" data-entity="${p.ids.battery || ""}"><div class="bar-fill" style="width:${pct}%;${color ? `background:${color.fill}` : ""}"></div></div>
+        <div class="pct" data-entity="${p.ids.battery || ""}">${pctHTML}</div>
+        <div class="icons">${icons}</div>
       </div>`;
   }
 
@@ -391,113 +402,45 @@ export class ISDTBattAirCard extends HTMLElement {
     }
     .stat-div { width: 1px; height: 24px; background: var(--divider-color); }
 
-    /* Pack list */
-    /* One column on narrow cards, two or more once each pack gets ~210 px. */
-    .list {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-      gap: 14px 12px; padding: 12px 12px 16px;
+    /* Pack list: one compact line per pack */
+    .list { padding: 4px 0 8px; }
+    .empty { padding: 12px 20px; color: var(--secondary-text-color); font-size: 14px; }
+    .line {
+      display: grid; grid-template-columns: minmax(0, 1fr) 26% 44px 40px;
+      align-items: center; gap: 10px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--divider-color, #e0e0e0);
     }
-    .empty { grid-column: 1 / -1; }
-    .empty { padding: 4px; color: var(--secondary-text-color); font-size: 14px; }
-    .pack { display: flex; flex-direction: column; min-width: 0; container-type: inline-size; }
-    .shell { display: flex; align-items: center; cursor: pointer; transition: transform 0.2s; }
-    .shell:hover { transform: translateX(2px); }
-    .body {
-      position: relative; flex: 1; min-width: 0; min-height: 58px;
-      background: var(--secondary-background-color, rgba(0,0,0,0.04));
-      border: 2px solid var(--divider-color, #e0e0e0);
-      border-radius: 12px 4px 4px 12px;
-      overflow: hidden; transition: border-color 0.4s, box-shadow 0.4s;
-    }
-    .terminal {
-      width: 6px; height: 26px; flex-shrink: 0;
-      background: var(--divider-color, #e0e0e0);
-      border-radius: 0 3px 3px 0;
-    }
-    .fill {
-      position: absolute; top: 0; left: 0; bottom: 0; opacity: 0.3;
-      transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
-    }
-    .fill::after {
-      content: ''; position: absolute; inset: 0;
-      background: linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 55%);
-    }
-    .content {
-      position: relative; z-index: 2;
-      display: flex; align-items: center; gap: 10px;
-      padding: 9px 14px 9px 14px;
-    }
-    .ident { flex: 1; min-width: 0; }
+    .line:last-child { border-bottom: none; }
+    .line.off { opacity: 0.5; }
+    [data-entity]:not([data-entity=""]) { cursor: pointer; }
+    .who { min-width: 0; }
     .name {
-      font-size: 14px; font-weight: 700; color: var(--primary-text-color);
+      font-size: 13px; font-weight: 600;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      padding-right: 70px;
     }
-    .spec {
-      display: flex; align-items: center; gap: 6px; margin-top: 3px;
-      font-size: 11px; color: var(--secondary-text-color); white-space: nowrap;
-      min-width: 0; overflow: hidden;
+    .sub {
+      font-size: 11px; color: var(--secondary-text-color); font-variant-numeric: tabular-nums;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .spec span:last-child:not(.btype-label) { overflow: hidden; text-overflow: ellipsis; }
-    .btype-label { flex-shrink: 0; }
-    .btype-label {
-      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;
-      background: rgba(128,128,128,0.15); padding: 1px 5px; border-radius: 3px;
+    .sub.err { color: var(--isdt-error); font-weight: 600; }
+    .bar {
+      height: 8px; border-radius: 4px 2px 2px 4px; overflow: hidden;
+      background: var(--secondary-background-color, rgba(0,0,0,0.06));
     }
-    .pct { display: flex; align-items: baseline; flex-shrink: 0; align-self: flex-end; }
-    .pct-num { font-size: 26px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-    .pct-sym { font-size: 12px; font-weight: 500; color: var(--secondary-text-color); margin-left: 1px; }
-    .pct-num.dash { color: var(--disabled-text-color, #bdbdbd); }
-    .status-badge {
-      position: absolute; top: 6px; right: 8px; z-index: 3;
-      font-size: 7.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px;
-      padding: 2px 6px; border-radius: 3px;
-      background: var(--card-background-color, rgba(255,255,255,0.85));
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-      color: var(--secondary-text-color);
-    }
-    .status-badge.error { color: var(--isdt-error); }
-    .status-badge.info { color: var(--isdt-done); }
-
-    .pack.problem .body {
-      border-color: rgba(239,83,80,0.5);
-      box-shadow: 0 0 16px rgba(239,83,80,0.12);
-      animation: err-b 2s ease-in-out infinite;
-    }
-    .pack.problem .terminal { background: var(--isdt-error); }
-    @keyframes err-b {
-      0%,100% { border-color: rgba(239,83,80,0.3); }
-      50%     { border-color: rgba(239,83,80,0.6); }
-    }
-    .pack.off .body { opacity: 0.55; }
-    .pack.off .terminal { opacity: 0.4; }
-
-    .pack-vi {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      margin-top: 6px; padding: 0 8px 0 4px;
-      font-family: ui-monospace, 'Roboto Mono', monospace;
-      font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 600;
-      color: var(--primary-text-color);
-    }
-    .pack-vi span { display: flex; align-items: center; gap: 2px; cursor: pointer; white-space: nowrap; }
-    .pack-vi span:hover { color: var(--accent-color); }
-    .pack-vi ha-icon { --mdc-icon-size: 13px; opacity: 0.45; }
-    .pack-vi.away { color: var(--secondary-text-color); font-weight: 500; justify-content: flex-start; }
-    .warn-line {
-      display: flex; align-items: center; gap: 4px; margin: 4px 4px 0;
-      font-size: 11px; font-weight: 600; color: var(--isdt-error); cursor: pointer;
-    }
-    .warn-line ha-icon { --mdc-icon-size: 13px; }
+    .bar-fill { height: 100%; transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1); }
+    .pct { text-align: right; font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .pct small { font-size: 10px; font-weight: 500; color: var(--secondary-text-color); }
+    .pct .dash { color: var(--disabled-text-color, #bdbdbd); }
+    .icons { display: flex; justify-content: flex-end; gap: 2px; }
+    .icons ha-icon { --mdc-icon-size: 18px; }
+    .icons .error { color: var(--isdt-error); }
+    .icons .info { color: var(--isdt-done); }
+    .icons .muted { color: var(--secondary-text-color); }
     @container (max-width: 360px) {
       .header { padding: 14px 14px 12px; }
       .header-stats { padding: 8px 4px; }
-    }
-    /* Narrow pack (two columns, phone): values in a 2 x 2 grid. */
-    @container (max-width: 300px) {
-      .pack-vi { display: grid; grid-template-columns: 1fr auto; row-gap: 3px; }
-      .pack-vi.away { display: flex; }
-      .name { padding-right: 0; }
-      .content { padding-top: 20px; }
+      .line { grid-template-columns: minmax(0, 1fr) 18% 40px 40px; gap: 8px; padding: 8px 12px; }
     }
     `;
   }
