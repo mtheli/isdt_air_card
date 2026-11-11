@@ -204,11 +204,13 @@ export class ISDTBattAirCard extends HTMLElement {
     return rtf.format(Math.round(seconds / 86400), "day");
   }
 
-  _level(charge) {
-    if (charge == null) return "none";
-    if (charge <= 15) return "low";
-    if (charge <= 40) return "mid";
-    return "high";
+  _color(charge) {
+    // Same thresholds and colours as the charge level in the charger card.
+    if (charge == null) return null;
+    if (charge <= 20) return { fill: "#ff5555", deep: "#cc2222", glow: "rgba(255,85,85,0.45)", shadow: "rgba(255,85,85,0.12)" };
+    if (charge < 75) return { fill: "#ff9955", deep: "#cc6622", glow: "rgba(255,153,85,0.45)", shadow: "rgba(255,153,85,0.12)" };
+    if (charge < 90) return { fill: "#aad400", deep: "#779200", glow: "rgba(170,212,0,0.45)", shadow: "rgba(170,212,0,0.12)" };
+    return { fill: "#37c871", deep: "#1a8a4a", glow: "rgba(55,200,113,0.45)", shadow: "rgba(55,200,113,0.12)" };
   }
 
   /* ── Render ─────────────────────────────────────────── */
@@ -217,7 +219,8 @@ export class ISDTBattAirCard extends HTMLElement {
     if (!this._hass) return;
     let packs = this._findPacks(this._hass);
     const total = packs.length;
-    if (this._config.hide_unavailable) packs = packs.filter((p) => p.available);
+    const online = packs.filter((p) => p.available);
+    if (this._config.hide_unavailable) packs = online.slice();
     packs = this._sortPacks(packs);
     this._packCount = packs.length;
 
@@ -226,13 +229,23 @@ export class ISDTBattAirCard extends HTMLElement {
     this._lastKey = key;
 
     const h = this._hass;
-    const warnings = packs.filter((p) => p.available && (p.lowCell || p.errorLog)).length;
-    const away = packs.filter((p) => !p.available).length;
-    const title = this._config.title || "BattAir";
+    const warnings = online.filter((p) => p.lowCell || p.errorLog).length;
+    const away = total - online.length;
+    const charges = online.map((p) => p.charge).filter((c) => c != null);
+    const avg = charges.length ? Math.round(charges.reduce((a, b) => a + b, 0) / charges.length) : null;
 
-    const chips = [`<span class="chip">${total} ${t(h, total === 1 ? "battair_pack" : "battair_packs")}</span>`];
-    if (warnings) chips.push(`<span class="chip warn"><ha-icon icon="mdi:alert"></ha-icon>${warnings}</span>`);
-    if (away) chips.push(`<span class="chip away"><ha-icon icon="mdi:bluetooth-off"></ha-icon>${away}</span>`);
+    const stat = (value, unit, label, cls = "") =>
+      `<div class="stat ${cls}"><span class="stat-value">${value}${unit ? `<small>${unit}</small>` : ""}</span><span class="stat-label">${label}</span></div>`;
+    const stats = [
+      stat(total, "", t(h, "battair_stat_packs")),
+      stat(avg ?? "—", avg != null ? "%" : "", t(h, "battair_stat_avg")),
+      stat(warnings, "", t(h, "battair_stat_warnings"), warnings ? "warn" : ""),
+      stat(away, "", t(h, "battair_stat_away")),
+    ].join('<div class="stat-div"></div>');
+
+    const title = this._config.title
+      ? `<span class="title-text">${esc(this._config.title)}</span>`
+      : `<span class="isdt-logo">ISDT</span><span class="model-name">BattAir</span>`;
 
     const rows = packs.length
       ? packs.map((p) => this._row(p)).join("")
@@ -242,14 +255,16 @@ export class ISDTBattAirCard extends HTMLElement {
       <style>${this._css()}</style>
       <ha-card>
         <div class="header">
-          <div class="title">${esc(title)}</div>
-          <div class="chips">${chips.join("")}</div>
+          <div class="header-title">${title}</div>
+          ${total ? `<div class="header-stats">${stats}</div>` : ""}
         </div>
         <div class="list">${rows}</div>
       </ha-card>`;
 
     this.shadowRoot.querySelectorAll("[data-entity]").forEach((el) => {
-      el.addEventListener("click", () => {
+      if (!el.dataset.entity) return;
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
         const ev = new Event("hass-more-info", { bubbles: true, composed: true });
         ev.detail = { entityId: el.dataset.entity };
         this.dispatchEvent(ev);
@@ -259,134 +274,212 @@ export class ISDTBattAirCard extends HTMLElement {
 
   _row(p) {
     const h = this._hass;
+    const chem = [];
+    if (p.type) chem.push(BATTERY_TYPE_LABELS[p.type] || p.type);
+    if (p.cells != null) chem.push(`${p.cells}S`);
     const spec = [];
-    if (p.cells != null) spec.push(`${p.cells}S`);
-    if (p.type) spec.push(BATTERY_TYPE_LABELS[p.type] || p.type);
     if (p.capacity != null) spec.push(`${Math.round(p.capacity)} mAh`);
     if (p.plugin) spec.push(t(h, "battair_plugin"));
 
-    const badges = [];
-    if (p.errorLog) badges.push(`<span class="badge bad" data-entity="${p.ids.error_log}"><ha-icon icon="mdi:alert-circle"></ha-icon>${t(h, "battair_error_log")}</span>`);
-    if (p.lowCell) badges.push(`<span class="badge bad" data-entity="${p.ids.cell_voltage_low}"><ha-icon icon="mdi:battery-alert-variant-outline"></ha-icon>${t(h, "battair_low_cell")}</span>`);
-    if (p.available && p.storage) badges.push(`<span class="badge info" data-entity="${p.ids.storage_discharge}"><ha-icon icon="mdi:battery-arrow-down-outline"></ha-icon>${t(h, "battair_storage")}</span>`);
-    if (p.available && p.transport) badges.push(`<span class="badge" data-entity="${p.ids.transport_mode}"><ha-icon icon="mdi:truck-outline"></ha-icon>${t(h, "battair_transport")}</span>`);
-    if (!p.available) badges.push(`<span class="badge away" data-entity="${p.ids.last_seen || ""}"><ha-icon icon="mdi:bluetooth-off"></ha-icon>${t(h, "battair_last_seen")} ${esc(this._ago(p.lastSeen))}</span>`);
+    // One status badge in the corner, most important first.
+    let badge = null;
+    if (!p.available) badge = { cls: "away", text: t(h, "battair_badge_away"), entity: p.ids.last_seen };
+    else if (p.errorLog) badge = { cls: "error", text: t(h, "battair_error_log"), entity: p.ids.error_log };
+    else if (p.lowCell) badge = { cls: "error", text: t(h, "battair_low_cell"), entity: p.ids.cell_voltage_low };
+    else if (p.storage) badge = { cls: "info", text: t(h, "battair_storage"), entity: p.ids.storage_discharge };
+    else if (p.transport) badge = { cls: "", text: t(h, "battair_transport"), entity: p.ids.transport_mode };
+    // Further warnings that did not make it into the corner.
+    const extra = [];
+    if (p.available && p.errorLog && p.lowCell) {
+      extra.push(`<span class="warn-line" data-entity="${p.ids.cell_voltage_low}"><ha-icon icon="mdi:alert"></ha-icon>${t(h, "battair_low_cell")}</span>`);
+    }
 
-    const level = p.available ? this._level(p.charge) : "none";
-    const pct = p.available && p.charge != null ? Math.max(0, Math.min(100, p.charge)) : 0;
-    const chargeText = p.available && p.charge != null ? `${Math.round(p.charge)} %` : "—";
+    const problem = p.available && (p.errorLog || p.lowCell);
+    const color = p.available ? this._color(p.charge) : null;
+    const pct = color ? Math.max(4, Math.min(100, p.charge)) : 0;
+    const fillStyle = color ? `width:${pct}%;background:linear-gradient(90deg,${color.deep},${color.fill})` : "width:0";
+    const bodyStyle = problem ? "" : color ? `border-color:${color.glow};box-shadow:0 0 12px ${color.shadow}` : "";
+    const termStyle = problem ? "" : color ? `background:${color.fill}` : "";
 
-    const metric = (value, unit, label) =>
-      `<div class="m"><span class="mv">${value}<small>${unit}</small></span><span class="ml">${label}</span></div>`;
-    const metrics = p.available
-      ? [
-          metric(this._fmt(p.voltage, 2), "V", t(h, "battair_voltage")),
-          metric(this._fmt(p.cell, 3), "V", t(h, "battair_per_cell")),
-          metric(this._fmt(p.temperature, 0), "°C", t(h, "battair_temperature")),
-          metric(this._fmt(p.cycles, 0), "", t(h, "battair_cycles")),
-        ].join("")
-      : "";
+    const pctHTML = p.available && p.charge != null
+      ? `<span class="pct-num">${Math.round(p.charge)}</span><span class="pct-sym">%</span>`
+      : `<span class="pct-num dash">—</span>`;
+
+    const info = p.available
+      ? `<div class="pack-vi">
+          <span data-entity="${p.ids.voltage || ""}"><ha-icon icon="mdi:lightning-bolt"></ha-icon>${this._fmt(p.voltage, 2)} V</span>
+          <span data-entity="${p.ids.cell_voltage_avg || ""}">Ø ${this._fmt(p.cell, 3)} V/${t(h, "battair_cell")}</span>
+          <span data-entity="${p.ids.temperature || ""}"><ha-icon icon="mdi:thermometer"></ha-icon>${this._fmt(p.temperature, 0)} °C</span>
+          <span data-entity="${p.ids.cycles || ""}"><ha-icon icon="mdi:sync"></ha-icon>${this._fmt(p.cycles, 0)}</span>
+        </div>`
+      : `<div class="pack-vi away"><span data-entity="${p.ids.last_seen || ""}"><ha-icon icon="mdi:clock-outline"></ha-icon>${t(h, "battair_last_seen")} ${esc(this._ago(p.lastSeen))}</span></div>`;
 
     return `
-      <div class="row ${p.available ? "" : "off"} ${p.lowCell || p.errorLog ? "problem" : ""}" >
-        <div class="top" data-entity="${p.ids.battery || ""}">
-          <ha-icon class="pack-icon ${level}" icon="${p.plugin ? "mdi:power-plug-battery-outline" : "mdi:battery-outline"}"></ha-icon>
-          <div class="ident">
-            <div class="name">${esc(p.name)}</div>
-            <div class="spec">${esc(spec.join(" · ")) || "&nbsp;"}</div>
+      <div class="pack ${p.available ? "" : "off"} ${problem ? "problem" : ""}">
+        <div class="shell" data-entity="${p.ids.battery || ""}">
+          <div class="body" style="${bodyStyle}">
+            <div class="fill" style="${fillStyle}"></div>
+            <div class="content">
+              <div class="ident">
+                <div class="name">${esc(p.name)}</div>
+                <div class="spec">
+                  ${chem.length ? `<span class="btype-label">${esc(chem.join(" · "))}</span>` : ""}
+                  ${spec.length ? `<span>${esc(spec.join(" · "))}</span>` : ""}
+                </div>
+              </div>
+              <div class="pct">${pctHTML}</div>
+            </div>
+            ${badge ? `<span class="status-badge ${badge.cls}" data-entity="${badge.entity || ""}">${esc(badge.text)}</span>` : ""}
           </div>
-          <div class="charge ${level}">${chargeText}</div>
+          <div class="terminal" style="${termStyle}"></div>
         </div>
-        <div class="bar"><div class="fill ${level}" style="width:${pct}%"></div></div>
-        ${metrics ? `<div class="metrics">${metrics}</div>` : ""}
-        ${badges.length ? `<div class="badges">${badges.join("")}</div>` : ""}
+        ${info}
+        ${extra.join("")}
       </div>`;
   }
 
   _css() {
     return `
+    :host {
+      --isdt-error: #ef5350;
+      --isdt-done: #42a5f5;
+    }
     ha-card {
+      background: var(--ha-card-background, var(--card-background-color, #fff));
+      color: var(--primary-text-color, #212121);
+      border-radius: var(--ha-card-border-radius, 12px);
+      border: 1px solid var(--ha-card-border-color, var(--divider-color, #e0e0e0));
       overflow: hidden;
       container-type: inline-size;
     }
+
+    /* Header, as in the charger card */
     .header {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 12px; padding: 16px 16px 8px;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--divider-color, #e0e0e0);
     }
-    .title {
-      font-size: 16px; font-weight: 700; color: var(--primary-text-color);
+    .header-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow: hidden; }
+    .isdt-logo {
+      font-weight: 800; font-size: 18px; letter-spacing: 2.5px;
+      color: var(--primary-color, #03a9f4);
+    }
+    .title-text {
+      font-weight: 700; font-size: 15px; letter-spacing: -0.01em;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .chips { display: flex; gap: 6px; flex-shrink: 0; }
-    .chip {
-      display: inline-flex; align-items: center; gap: 3px;
-      font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 12px;
-      background: var(--secondary-background-color, rgba(0,0,0,0.05));
-      color: var(--secondary-text-color);
+    .model-name { font-size: 13px; font-weight: 500; color: var(--secondary-text-color, #727272); }
+    .header-stats {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--secondary-background-color, rgba(0,0,0,0.04));
+      border-radius: 10px; padding: 10px 6px; margin-top: 14px;
     }
-    .chip ha-icon { --mdc-icon-size: 14px; }
-    .chip.warn { color: var(--error-color, #db4437); }
-    .list { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 12px; }
-    .empty { padding: 12px 4px; color: var(--secondary-text-color); font-size: 14px; }
-    .row {
-      border: 1px solid var(--divider-color, #e0e0e0);
-      border-radius: 12px; padding: 10px 12px;
+    .stat { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 0; }
+    .stat-value {
+      font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
+      color: var(--primary-text-color); line-height: 1.2;
     }
-    .row.problem { border-color: var(--error-color, #db4437); }
-    .row.off .top, .row.off .bar { opacity: 0.45; }
-    .top { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-    .pack-icon { --mdc-icon-size: 26px; color: var(--secondary-text-color); flex-shrink: 0; }
-    .pack-icon.high { color: var(--success-color, #43a047); }
-    .pack-icon.mid { color: var(--warning-color, #ffa600); }
-    .pack-icon.low { color: var(--error-color, #db4437); }
+    .stat-value small { font-size: 10px; font-weight: 400; color: var(--secondary-text-color); margin-left: 2px; }
+    .stat.warn .stat-value { color: var(--isdt-error); }
+    .stat-label {
+      font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--secondary-text-color); margin-top: 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+    }
+    .stat-div { width: 1px; height: 24px; background: var(--divider-color); }
+
+    /* Pack list */
+    .list { display: flex; flex-direction: column; gap: 14px; padding: 12px 12px 16px; }
+    .empty { padding: 4px; color: var(--secondary-text-color); font-size: 14px; }
+    .pack { display: flex; flex-direction: column; }
+    .shell { display: flex; align-items: center; cursor: pointer; transition: transform 0.2s; }
+    .shell:hover { transform: translateX(2px); }
+    .body {
+      position: relative; flex: 1; min-width: 0; min-height: 58px;
+      background: var(--secondary-background-color, rgba(0,0,0,0.04));
+      border: 2px solid var(--divider-color, #e0e0e0);
+      border-radius: 12px 4px 4px 12px;
+      overflow: hidden; transition: border-color 0.4s, box-shadow 0.4s;
+    }
+    .terminal {
+      width: 6px; height: 26px; flex-shrink: 0;
+      background: var(--divider-color, #e0e0e0);
+      border-radius: 0 3px 3px 0;
+    }
+    .fill {
+      position: absolute; top: 0; left: 0; bottom: 0; opacity: 0.3;
+      transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .fill::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 55%);
+    }
+    .content {
+      position: relative; z-index: 2;
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 14px 9px 14px;
+    }
     .ident { flex: 1; min-width: 0; }
     .name {
-      font-size: 14px; font-weight: 600; color: var(--primary-text-color);
+      font-size: 14px; font-weight: 700; color: var(--primary-text-color);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      padding-right: 70px;
     }
-    .spec { font-size: 12px; color: var(--secondary-text-color); margin-top: 1px; }
-    .charge {
-      font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums;
-      color: var(--primary-text-color);
+    .spec {
+      display: flex; align-items: center; gap: 6px; margin-top: 3px;
+      font-size: 11px; color: var(--secondary-text-color); white-space: nowrap;
     }
-    .charge.low { color: var(--error-color, #db4437); }
-    .bar {
-      height: 6px; border-radius: 3px; margin: 8px 0 2px;
-      background: var(--secondary-background-color, rgba(0,0,0,0.06));
-      overflow: hidden;
+    .btype-label {
+      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;
+      background: rgba(128,128,128,0.15); padding: 1px 5px; border-radius: 3px;
     }
-    .fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
-    .fill.high { background: var(--success-color, #43a047); }
-    .fill.mid { background: var(--warning-color, #ffa600); }
-    .fill.low { background: var(--error-color, #db4437); }
-    .metrics {
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 8px;
-    }
-    .m { display: flex; flex-direction: column; min-width: 0; }
-    .mv {
-      font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;
-      color: var(--primary-text-color); white-space: nowrap;
-    }
-    .mv small { font-size: 11px; font-weight: 400; margin-left: 2px; color: var(--secondary-text-color); }
-    .ml {
-      font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
-      color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-    .badge {
-      display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
-      font-size: 12px; font-weight: 500; padding: 3px 8px; border-radius: 10px;
-      background: var(--secondary-background-color, rgba(0,0,0,0.05));
+    .pct { display: flex; align-items: baseline; flex-shrink: 0; align-self: flex-end; }
+    .pct-num { font-size: 26px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+    .pct-sym { font-size: 12px; font-weight: 500; color: var(--secondary-text-color); margin-left: 1px; }
+    .pct-num.dash { color: var(--disabled-text-color, #bdbdbd); }
+    .status-badge {
+      position: absolute; top: 6px; right: 8px; z-index: 3;
+      font-size: 7.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px;
+      padding: 2px 6px; border-radius: 3px;
+      background: var(--card-background-color, rgba(255,255,255,0.85));
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       color: var(--secondary-text-color);
     }
-    .badge ha-icon { --mdc-icon-size: 15px; }
-    .badge.bad {
-      color: var(--error-color, #db4437);
-      background: color-mix(in srgb, var(--error-color, #db4437) 12%, transparent);
+    .status-badge.error { color: var(--isdt-error); }
+    .status-badge.info { color: var(--isdt-done); }
+
+    .pack.problem .body {
+      border-color: rgba(239,83,80,0.5);
+      box-shadow: 0 0 16px rgba(239,83,80,0.12);
+      animation: err-b 2s ease-in-out infinite;
     }
-    .badge.info { color: var(--info-color, #039be5); }
-    @container (max-width: 330px) {
-      .metrics { grid-template-columns: repeat(2, 1fr); row-gap: 6px; }
+    .pack.problem .terminal { background: var(--isdt-error); }
+    @keyframes err-b {
+      0%,100% { border-color: rgba(239,83,80,0.3); }
+      50%     { border-color: rgba(239,83,80,0.6); }
+    }
+    .pack.off .body { opacity: 0.55; }
+    .pack.off .terminal { opacity: 0.4; }
+
+    .pack-vi {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      margin-top: 6px; padding: 0 8px 0 4px;
+      font-family: ui-monospace, 'Roboto Mono', monospace;
+      font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 600;
+      color: var(--primary-text-color);
+    }
+    .pack-vi span { display: flex; align-items: center; gap: 2px; cursor: pointer; white-space: nowrap; }
+    .pack-vi span:hover { color: var(--accent-color); }
+    .pack-vi ha-icon { --mdc-icon-size: 13px; opacity: 0.45; }
+    .pack-vi.away { color: var(--secondary-text-color); font-weight: 500; justify-content: flex-start; }
+    .warn-line {
+      display: flex; align-items: center; gap: 4px; margin: 4px 4px 0;
+      font-size: 11px; font-weight: 600; color: var(--isdt-error); cursor: pointer;
+    }
+    .warn-line ha-icon { --mdc-icon-size: 13px; }
+    @container (max-width: 360px) {
+      .header { padding: 14px 14px 12px; }
+      .header-stats { padding: 8px 4px; }
+      .pack-vi { flex-wrap: wrap; row-gap: 3px; }
     }
     `;
   }

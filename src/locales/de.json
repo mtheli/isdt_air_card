@@ -54,5 +54,11 @@
   "battair_voltage": "Spannung",
   "battair_per_cell": "pro Zelle",
   "battair_temperature": "Temp.",
-  "battair_cycles": "Zyklen"
+  "battair_cycles": "Zyklen",
+  "battair_stat_packs": "Packs",
+  "battair_stat_avg": "Ø Ladung",
+  "battair_stat_warnings": "Warnungen",
+  "battair_stat_away": "Offline",
+  "battair_badge_away": "Offline",
+  "battair_cell": "Zelle"
 }
