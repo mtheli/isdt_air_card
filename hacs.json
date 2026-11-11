@@ -1,5 +1,6 @@
 {
   "name": "ISDT Charger Card",
+  "homeassistant": "2024.11.0",
   "render_readme": true,
   "filename": "isdt-charger-card.js",
   "content_in_root": false
