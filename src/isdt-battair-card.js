@@ -142,6 +142,10 @@ export class ISDTBattAirCard extends HTMLElement {
         deviceId,
         ids,
         name: dev.name_by_user || dev.name || deviceId,
+        // The card is titled BattAir already; "BattAir 4S 1300 mAh 88AD" reads
+        // as "4S 1300 mAh 88AD" in the list.
+        label: (dev.name_by_user || dev.name || deviceId).replace(/^BattAir\s+/i, "") ||
+          dev.name || deviceId,
         plugin: (dev.model || "").toLowerCase().includes("plugin"),
         available,
         charge: num("battery"),
@@ -165,7 +169,7 @@ export class ISDTBattAirCard extends HTMLElement {
     const sort = SORTS.includes(this._config.sort) ? this._config.sort : "name";
     const rank = (p) => (!p.available ? 2 : p.lowCell || p.errorLog ? 0 : 1);
     const byName = (a, b) =>
-      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+      a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" });
     return packs.sort((a, b) => {
       const r = rank(a) - rank(b);
       if (r) return r;
@@ -321,7 +325,7 @@ export class ISDTBattAirCard extends HTMLElement {
             <div class="fill" style="${fillStyle}"></div>
             <div class="content">
               <div class="ident">
-                <div class="name">${esc(p.name)}</div>
+                <div class="name" title="${esc(p.name)}">${esc(p.label)}</div>
                 <div class="spec">
                   ${chem.length ? `<span class="btype-label">${esc(chem.join(" · "))}</span>` : ""}
                   ${spec.length ? `<span>${esc(spec.join(" · "))}</span>` : ""}
@@ -388,9 +392,14 @@ export class ISDTBattAirCard extends HTMLElement {
     .stat-div { width: 1px; height: 24px; background: var(--divider-color); }
 
     /* Pack list */
-    .list { display: flex; flex-direction: column; gap: 14px; padding: 12px 12px 16px; }
+    /* One column on narrow cards, two or more once each pack gets ~210 px. */
+    .list {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      gap: 14px 12px; padding: 12px 12px 16px;
+    }
+    .empty { grid-column: 1 / -1; }
     .empty { padding: 4px; color: var(--secondary-text-color); font-size: 14px; }
-    .pack { display: flex; flex-direction: column; }
+    .pack { display: flex; flex-direction: column; min-width: 0; container-type: inline-size; }
     .shell { display: flex; align-items: center; cursor: pointer; transition: transform 0.2s; }
     .shell:hover { transform: translateX(2px); }
     .body {
@@ -427,7 +436,10 @@ export class ISDTBattAirCard extends HTMLElement {
     .spec {
       display: flex; align-items: center; gap: 6px; margin-top: 3px;
       font-size: 11px; color: var(--secondary-text-color); white-space: nowrap;
+      min-width: 0; overflow: hidden;
     }
+    .spec span:last-child:not(.btype-label) { overflow: hidden; text-overflow: ellipsis; }
+    .btype-label { flex-shrink: 0; }
     .btype-label {
       font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;
       background: rgba(128,128,128,0.15); padding: 1px 5px; border-radius: 3px;
@@ -479,7 +491,13 @@ export class ISDTBattAirCard extends HTMLElement {
     @container (max-width: 360px) {
       .header { padding: 14px 14px 12px; }
       .header-stats { padding: 8px 4px; }
-      .pack-vi { flex-wrap: wrap; row-gap: 3px; }
+    }
+    /* Narrow pack (two columns, phone): values in a 2 x 2 grid. */
+    @container (max-width: 300px) {
+      .pack-vi { display: grid; grid-template-columns: 1fr auto; row-gap: 3px; }
+      .pack-vi.away { display: flex; }
+      .name { padding-right: 0; }
+      .content { padding-top: 20px; }
     }
     `;
   }
