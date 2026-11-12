@@ -16,7 +16,8 @@ const PREFIX = "battair_";
 
 const SORTS = ["name", "charge", "last_seen"];
 
-// Temperature outside this range counts as a problem (°C).
+// Temperature outside this range counts as a problem (°C). The sensor reports
+// in the unit set in Home Assistant, so °F is converted before comparing.
 const TEMP_LOW = 5;
 const TEMP_HIGH = 45;
 
@@ -153,6 +154,7 @@ export class ISDTBattAirCard extends HTMLElement {
         voltage: num("voltage"),
         cell: num("cell_voltage_avg"),
         temperature: num("temperature"),
+        temperatureUnit: st("temperature")?.attributes?.unit_of_measurement || "°C",
         cycles: num("cycles"),
         cells: num("cells"),
         capacity: num("capacity"),
@@ -198,10 +200,13 @@ export class ISDTBattAirCard extends HTMLElement {
         text: p.cell != null ? `${t(h, "battair_low_cell")} · ${this._fmt(p.cell, 2)} V` : t(h, "battair_low_cell"),
       });
     }
-    if (p.temperature != null && (p.temperature < TEMP_LOW || p.temperature > TEMP_HIGH)) {
+    const celsius = p.temperature == null ? null
+      : p.temperatureUnit === "°F" ? (p.temperature - 32) * 5 / 9
+      : p.temperature;
+    if (celsius != null && (celsius < TEMP_LOW || celsius > TEMP_HIGH)) {
       w.push({
         cls: "error", icon: "mdi:thermometer-alert", entity: p.ids.temperature,
-        text: `${t(h, "battair_temperature_alert")} · ${this._fmt(p.temperature, 0)} °C`,
+        text: `${t(h, "battair_temperature_alert")} · ${this._fmt(p.temperature, 0)} ${p.temperatureUnit}`,
       });
     }
     if (p.storage) {
